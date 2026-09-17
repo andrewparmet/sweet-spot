@@ -77,7 +77,7 @@ function framePage(title: string, source: string): string {
       iframe { display: block; height: 100dvh; }
     </style>
   </head>
-  <body><iframe title="${title}" src="${source}" allow="clipboard-write"></iframe></body>
+  <body><iframe aria-label="${title}" src="${source}" allow="clipboard-write"></iframe></body>
 </html>
 `;
 }

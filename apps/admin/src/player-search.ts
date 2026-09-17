@@ -23,15 +23,14 @@ export function playerMatchScore(input: string, candidate: string): number {
   const candidateLast = candidateParts.at(-1) || '';
   const inputFirst = inputParts[0] || '';
   const candidateFirst = candidateParts[0] || '';
-  if (
-    inputParts.length > 1 &&
-    inputFirst.length === 1 &&
-    inputFirst === candidateFirst[0] &&
-    inputLast === candidateLast
-  ) {
+  const surnameMatches = inputLast === candidateLast || (inputLast.length >= 3 && candidateLast.endsWith(inputLast));
+  if (inputParts.length > 1 && inputFirst.length === 1 && inputFirst === candidateFirst[0] && surnameMatches) {
     return 0.1;
   }
-  if (inputLast && inputLast === candidateLast) {
+  if (inputParts.length === 1 && surnameMatches) {
+    return 0.15;
+  }
+  if (inputLast && surnameMatches) {
     if (
       inputFirst &&
       candidateFirst &&

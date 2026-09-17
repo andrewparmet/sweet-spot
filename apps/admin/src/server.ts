@@ -83,26 +83,28 @@ export function loadPlayerDirectory(
 function searchPlayers(sessionToken: string, type: 'S' | 'D', name: string): PlayerSearchResult {
   const primaryOrgByPersonId = new Map<number, number>();
   const resolvedNames = new Set<string>();
-  const directoryResponse = rtoGet(
-    `/Person/directory/search?query=${encodeURIComponent(name)}&maxResults=10`,
-    sessionToken
-  );
-  if (!isRecord(directoryResponse) || !Array.isArray(directoryResponse.people ?? directoryResponse.People)) {
-    throw new Error('RTO returned an unreadable person directory.');
-  }
-  const people = (directoryResponse.people ?? directoryResponse.People) as unknown[];
-  for (const person of people.slice(0, 10)) {
-    if (!isRecord(person)) {
-      continue;
+  for (const directoryQuery of new Set([name, lastName(name)].filter(Boolean))) {
+    const directoryResponse = rtoGet(
+      `/Person/directory/search?query=${encodeURIComponent(directoryQuery)}&maxResults=10`,
+      sessionToken
+    );
+    if (!isRecord(directoryResponse) || !Array.isArray(directoryResponse.people ?? directoryResponse.People)) {
+      throw new Error('RTO returned an unreadable person directory.');
     }
-    const personId = Number(person.personID ?? person.PersonID);
-    const primaryOrgId = Number(person.primaryOrgID ?? person.PrimaryOrgID);
-    const resolvedName = readString(person, 'nameFirstLastTag', 'NameFirstLastTag', 'nameFirstLast', 'NameFirstLast');
-    if (Number.isFinite(personId) && Number.isFinite(primaryOrgId)) {
-      primaryOrgByPersonId.set(personId, primaryOrgId);
-    }
-    if (resolvedName) {
-      resolvedNames.add(resolvedName);
+    const people = (directoryResponse.people ?? directoryResponse.People) as unknown[];
+    for (const person of people.slice(0, 10)) {
+      if (!isRecord(person)) {
+        continue;
+      }
+      const personId = Number(person.personID ?? person.PersonID);
+      const primaryOrgId = Number(person.primaryOrgID ?? person.PrimaryOrgID);
+      const resolvedName = readString(person, 'nameFirstLastTag', 'NameFirstLastTag', 'nameFirstLast', 'NameFirstLast');
+      if (Number.isFinite(personId) && Number.isFinite(primaryOrgId)) {
+        primaryOrgByPersonId.set(personId, primaryOrgId);
+      }
+      if (resolvedName) {
+        resolvedNames.add(resolvedName);
+      }
     }
   }
   const queries = new Set([name, lastName(name), ...resolvedNames].filter(Boolean));
