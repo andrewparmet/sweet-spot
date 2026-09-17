@@ -137,17 +137,11 @@
           <div class="submit-dock">
             <button id="submit-button" type="submit"><span class="button-label">Submit score</span></button>
           </div>
+          <div id="success-view" class="success-view" hidden tabindex="-1">
+            <button id="undo-submission" class="text-button" type="button">Undo submission</button>
+            <div id="undo-message" class="form-message" role="alert" aria-live="polite" hidden></div>
+          </div>
         </form>
-
-        <section id="success-view" class="success-view" hidden aria-labelledby="success-title" tabindex="-1">
-          <div class="success-icon" aria-hidden="true">✓</div>
-          <p class="eyebrow">Score received</p>
-          <h2 id="success-title">You're all set.</h2>
-          <p class="receipt-copy">Receipt <strong id="receipt-number"></strong></p>
-          <div id="undo-message" class="form-message" role="alert" aria-live="polite" hidden></div>
-          <button id="another-score" class="secondary-button" type="button">Enter another score</button>
-          <button id="undo-submission" class="text-button" type="button">Undo submission</button>
-        </section>
       </section>
     </main>
 

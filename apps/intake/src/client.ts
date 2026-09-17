@@ -15,8 +15,6 @@ const successView = requiredElement<HTMLElement>('success-view');
 const formMessage = requiredElement<HTMLElement>('form-message');
 const submitButton = requiredElement<HTMLButtonElement>('submit-button');
 const buttonLabel = requiredDescendant<HTMLElement>(submitButton, '.button-label');
-const receiptNumber = requiredElement<HTMLElement>('receipt-number');
-const anotherScoreButton = requiredElement<HTMLButtonElement>('another-score');
 const undoButton = requiredElement<HTMLButtonElement>('undo-submission');
 const undoMessage = requiredElement<HTMLElement>('undo-message');
 const partnerFields = Array.from(document.querySelectorAll<HTMLElement>('.partner-field'));
@@ -174,6 +172,9 @@ function setSubmitted(submitted: boolean): void {
 
 function setFormLocked(locked: boolean): void {
   Array.from(form.elements).forEach(control => {
+    if (control === undoButton) {
+      return;
+    }
     if (control instanceof HTMLInputElement || control instanceof HTMLButtonElement) {
       control.disabled = locked;
     }
@@ -195,7 +196,6 @@ function showSuccess(result: MatchSubmissionResponse): void {
     requestId: lastSubmittedDraft?.requestId ?? pendingRequestId
   };
   localStorage.removeItem(DRAFT_KEY);
-  receiptNumber.textContent = result.submissionId.slice(0, 8).toUpperCase();
   successView.hidden = false;
   successView.focus();
   successView.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -204,7 +204,6 @@ function showSuccess(result: MatchSubmissionResponse): void {
 function setUndoing(undoing: boolean): void {
   undoButton.disabled = undoing;
   undoButton.textContent = undoing ? 'Undoing…' : 'Undo submission';
-  anotherScoreButton.disabled = undoing;
 }
 
 function showUndoError(error: Error): void {
@@ -293,21 +292,6 @@ form.addEventListener('submit', event => {
   };
 
   google.script.run.withSuccessHandler(showSuccess).withFailureHandler(showError).submitMatch(payload);
-});
-
-anotherScoreButton.addEventListener('click', () => {
-  form.reset();
-  pendingRequestId = randomId();
-  lastSubmission = undefined;
-  lastSubmittedDraft = undefined;
-  undoMessage.hidden = true;
-  formMessage.hidden = true;
-  successView.hidden = true;
-  setFormLocked(false);
-  setSubmitted(false);
-  updateMatchType();
-  updateHandicapType();
-  namedInput('side1Player1').focus();
 });
 
 undoButton.addEventListener('click', () => {

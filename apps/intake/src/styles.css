@@ -311,7 +311,6 @@ button {
 }
 
 #submit-button:focus-visible,
-.secondary-button:focus-visible,
 .text-button:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
@@ -324,37 +323,7 @@ button {
 }
 
 .success-view {
-  padding: 3.5rem 1.5rem;
-  text-align: center;
-}
-
-.success-view .eyebrow {
-  color: var(--accent);
-}
-
-.success-icon {
-  display: grid;
-  width: 4rem;
-  height: 4rem;
-  margin: 0 auto 1.2rem;
-  place-items: center;
-  border-radius: 50%;
-  color: white;
-  background: var(--accent);
-  font-size: 2rem;
-  font-weight: 900;
-}
-
-.receipt-copy {
-  margin: 1rem 0 1.5rem;
-  color: var(--muted);
-}
-
-.secondary-button {
-  width: 100%;
-  border: 1px solid var(--accent);
-  color: var(--accent);
-  background: transparent;
+  padding-top: 0.25rem;
 }
 
 .text-button {
@@ -371,12 +340,6 @@ button {
 
 [hidden] {
   display: none !important;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @media (min-width: 38rem) {
