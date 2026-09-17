@@ -15,7 +15,7 @@ describe('playerMatchScore', () => {
   });
 
   it('recognizes the suffix of a compound last name', () => {
-    expect(playerMatchScore('G Cookson', 'George Sawrey-Cookson')).toBeLessThan(
+    expect(playerMatchScore('G Cookson', 'George Sawrey-Cookson [G-Monies]')).toBeLessThan(
       playerMatchScore('G Cookson', 'George Cook')
     );
     expect(playerMatchScore('Cookson', 'George Sawrey-Cookson')).toBeLessThan(
@@ -34,18 +34,20 @@ describe('playerMatchScore', () => {
 
 describe('reasonablePlayerMatches', () => {
   const players = [
-    { name: 'George Sawrey-Cookson' },
+    { name: 'George Sawrey-Cookson [G-Monies]' },
     { name: 'Seb Sawrey-Cookson' },
     { name: 'Hugh Cook' },
     { name: 'Andrew Parmet' }
   ];
 
   it('keeps strong fuzzy matches and removes unrelated players', () => {
-    expect(reasonablePlayerMatches('G Cookson', players)).toEqual([{ name: 'George Sawrey-Cookson' }]);
+    expect(reasonablePlayerMatches('G Cookson', players)).toEqual([{ name: 'George Sawrey-Cookson [G-Monies]' }]);
   });
 
   it('allows a close typo', () => {
-    expect(reasonablePlayerMatches('Goerge Sawrey Cookson', players)[0]).toEqual({ name: 'George Sawrey-Cookson' });
+    expect(reasonablePlayerMatches('Goerge Sawrey Cookson', players)[0]).toEqual({
+      name: 'George Sawrey-Cookson [G-Monies]'
+    });
   });
 
   it('returns no candidates for an unrelated name', () => {
