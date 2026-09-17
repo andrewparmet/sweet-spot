@@ -252,6 +252,33 @@ function validateHandicap(): boolean {
   return valid;
 }
 
+function clearFieldError(): void {
+  form.querySelector('.field-error')?.remove();
+  form.querySelector('[aria-invalid="true"]')?.removeAttribute('aria-invalid');
+}
+
+function requiredFieldMessage(input: HTMLInputElement): string {
+  const messages: Record<string, string> = {
+    score: 'Enter the result.',
+    side1Player1: 'Enter the Side 1 player.',
+    side1Player2: 'Enter the Side 1 partner.',
+    side2Player1: 'Enter the Side 2 player.',
+    side2Player2: 'Enter the Side 2 partner.'
+  };
+  return messages[input.name] ?? 'Complete this field.';
+}
+
+function showFieldError(input: HTMLInputElement): void {
+  clearFieldError();
+  const message = document.createElement('span');
+  message.className = 'field-error';
+  message.textContent = input.validity.valueMissing ? requiredFieldMessage(input) : input.validationMessage;
+  input.setAttribute('aria-invalid', 'true');
+  (input.closest('.text-field') ?? input.parentElement)?.append(message);
+  input.focus();
+  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 form.addEventListener('change', event => {
   const target = event.target as HTMLInputElement;
   if (target.name === 'matchType') {
@@ -264,6 +291,7 @@ form.addEventListener('change', event => {
 });
 
 form.addEventListener('input', event => {
+  clearFieldError();
   if (event.target === handicapInput) {
     validateHandicap();
   }
@@ -273,14 +301,13 @@ form.addEventListener('input', event => {
 form.addEventListener('submit', event => {
   event.preventDefault();
   formMessage.hidden = true;
+  clearFieldError();
   const validHandicap = validateHandicap();
   if (!validHandicap || !form.checkValidity()) {
     const invalidInput = form.querySelector<HTMLInputElement>('input:invalid');
-    formMessage.classList.remove('notice');
-    formMessage.textContent = invalidInput?.validationMessage || 'Complete the required match information.';
-    formMessage.hidden = false;
-    formMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    form.reportValidity();
+    if (invalidInput) {
+      showFieldError(invalidInput);
+    }
     return;
   }
 
