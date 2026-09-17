@@ -15,7 +15,6 @@ const successView = requiredElement<HTMLElement>('success-view');
 const formMessage = requiredElement<HTMLElement>('form-message');
 const submitButton = requiredElement<HTMLButtonElement>('submit-button');
 const buttonLabel = requiredDescendant<HTMLElement>(submitButton, '.button-label');
-const buttonSpinner = requiredDescendant<HTMLElement>(submitButton, '.button-spinner');
 const receiptNumber = requiredElement<HTMLElement>('receipt-number');
 const anotherScoreButton = requiredElement<HTMLButtonElement>('another-score');
 const undoButton = requiredElement<HTMLButtonElement>('undo-submission');
@@ -168,10 +167,17 @@ function restoreDraft(): void {
   }
 }
 
-function setSubmitting(submitting: boolean): void {
-  submitButton.disabled = submitting;
-  buttonLabel.textContent = submitting ? 'Submitting…' : 'Submit score';
-  buttonSpinner.hidden = !submitting;
+function setSubmitted(submitted: boolean): void {
+  submitButton.disabled = submitted;
+  buttonLabel.textContent = submitted ? 'Submitted' : 'Submit score';
+}
+
+function setFormLocked(locked: boolean): void {
+  Array.from(form.elements).forEach(control => {
+    if (control instanceof HTMLInputElement || control instanceof HTMLButtonElement) {
+      control.disabled = locked;
+    }
+  });
 }
 
 function showError(error: Error): void {
@@ -179,7 +185,8 @@ function showError(error: Error): void {
   formMessage.textContent = error.message || 'The score could not be submitted. Try again.';
   formMessage.hidden = false;
   formMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  setSubmitting(false);
+  setFormLocked(false);
+  setSubmitted(false);
 }
 
 function showSuccess(result: MatchSubmissionResponse): void {
@@ -189,11 +196,9 @@ function showSuccess(result: MatchSubmissionResponse): void {
   };
   localStorage.removeItem(DRAFT_KEY);
   receiptNumber.textContent = result.submissionId.slice(0, 8).toUpperCase();
-  form.hidden = true;
   successView.hidden = false;
   successView.focus();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  setSubmitting(false);
+  successView.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function setUndoing(undoing: boolean): void {
@@ -219,7 +224,8 @@ function showUndoSuccess(): void {
   lastSubmittedDraft = undefined;
   undoMessage.hidden = true;
   successView.hidden = true;
-  form.hidden = false;
+  setFormLocked(false);
+  setSubmitted(false);
   formMessage.textContent = 'Submission undone. Make any changes, then submit again.';
   formMessage.classList.add('notice');
   formMessage.hidden = false;
@@ -265,7 +271,8 @@ form.addEventListener('submit', event => {
     return;
   }
 
-  setSubmitting(true);
+  setSubmitted(true);
+  setFormLocked(true);
   const draft = currentDraft();
   lastSubmittedDraft = draft;
   const payload: MatchSubmissionRequest = {
@@ -285,7 +292,8 @@ anotherScoreButton.addEventListener('click', () => {
   undoMessage.hidden = true;
   formMessage.hidden = true;
   successView.hidden = true;
-  form.hidden = false;
+  setFormLocked(false);
+  setSubmitted(false);
   updateMatchType();
   updateHandicapType();
   namedInput('side1Player1').focus();
