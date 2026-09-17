@@ -6,6 +6,7 @@ tested, and published through the root scripts.
 ## Components
 
 - `apps/intake`: public mobile Apps Script application for player submissions
+- `apps/pages`: full-viewport GitHub Pages entry point for the intake application
 - `apps/admin`: private score-review application
 - `packages/shared`: request, response, and queue types shared by every component
 - `tools`: TypeScript build and publishing commands
