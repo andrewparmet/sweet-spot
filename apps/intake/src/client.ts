@@ -182,9 +182,14 @@ function setFormLocked(locked: boolean): void {
   });
 }
 
+function setUndoVisible(visible: boolean): void {
+  successView.classList.toggle('visible', visible);
+  successView.setAttribute('aria-hidden', String(!visible));
+}
+
 function showError(error: Error): void {
   lastSubmission = undefined;
-  successView.hidden = true;
+  setUndoVisible(false);
   setUndoing(false);
   formMessage.classList.remove('notice');
   formMessage.textContent = error.message || 'The score could not be submitted. Try again.';
@@ -201,7 +206,6 @@ function showSuccess(result: MatchSubmissionResponse): void {
   };
   localStorage.removeItem(DRAFT_KEY);
   setUndoing(false);
-  successView.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function setUndoing(undoing: boolean): void {
@@ -225,7 +229,7 @@ function showUndoSuccess(): void {
   lastSubmission = undefined;
   lastSubmittedDraft = undefined;
   undoMessage.hidden = true;
-  successView.hidden = true;
+  setUndoVisible(false);
   setFormLocked(false);
   setSubmitted(false);
   formMessage.textContent = 'Submission undone. Make any changes, then submit again.';
@@ -339,7 +343,7 @@ form.addEventListener('submit', event => {
 
   setSubmitted(true);
   setFormLocked(true);
-  successView.hidden = false;
+  setUndoVisible(true);
   undoButton.disabled = true;
   const draft = currentDraft();
   lastSubmittedDraft = draft;

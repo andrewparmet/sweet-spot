@@ -333,7 +333,13 @@ button {
 }
 
 .success-view {
+  min-height: 3.85rem;
   padding-top: 0.25rem;
+  visibility: hidden;
+}
+
+.success-view.visible {
+  visibility: visible;
 }
 
 .text-button {
