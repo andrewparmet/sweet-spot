@@ -1,6 +1,7 @@
 import {
   HANDICAP_ENTRY_TYPES,
   isValidOdds,
+  isValidScore,
   MATCH_TYPES,
   type HandicapEntryType,
   type MatchSubmissionResponse,
@@ -206,6 +207,9 @@ export function validateSubmission(payload: unknown): ValidatedMatchSubmission {
   }
 
   const score = requiredText(payload.score, 'Score', MAX_SCORE_LENGTH);
+  if (!isValidScore(score)) {
+    throw new Error('Enter game scores like 6-2,6-1 or 10-8.');
+  }
   const handicap = optionalText(payload.handicap, 'Handicap played', MAX_HANDICAP_LENGTH);
   if (handicap && handicapType === 'difference' && !/^[+-]?\d+(?:\.\d+)?$/.test(handicap)) {
     throw new Error('Enter the handicap difference as a number.');

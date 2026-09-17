@@ -1,4 +1,4 @@
-import { isValidOdds } from '../../../packages/shared/src/match.ts';
+import { isValidOdds, isValidScore } from '../../../packages/shared/src/match.ts';
 import type {
   HandicapEntryType,
   MatchSubmissionRequest,
@@ -19,6 +19,7 @@ const undoButton = requiredElement<HTMLButtonElement>('undo-submission');
 const undoMessage = requiredElement<HTMLElement>('undo-message');
 const partnerFields = Array.from(document.querySelectorAll<HTMLElement>('.partner-field'));
 const handicapInput = form.elements.namedItem('handicap') as HTMLInputElement;
+const scoreInput = form.elements.namedItem('score') as HTMLInputElement;
 let pendingRequestId = randomId();
 let lastSubmission: UndoSubmissionRequest | undefined;
 let lastSubmittedDraft: Draft | undefined;
@@ -200,7 +201,6 @@ function showSuccess(result: MatchSubmissionResponse): void {
   };
   localStorage.removeItem(DRAFT_KEY);
   setUndoing(false);
-  successView.focus();
   successView.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
@@ -252,6 +252,16 @@ function validateHandicap(): boolean {
   return valid;
 }
 
+function validateScore(): boolean {
+  if (!scoreInput.value.trim()) {
+    scoreInput.setCustomValidity('');
+    return false;
+  }
+  const valid = isValidScore(scoreInput.value);
+  scoreInput.setCustomValidity(valid ? '' : 'Enter game scores like 6-2,6-1 or 10-8.');
+  return valid;
+}
+
 function clearFieldError(): void {
   form.querySelector('.field-error')?.remove();
   form.querySelector('[aria-invalid="true"]')?.removeAttribute('aria-invalid');
@@ -279,6 +289,22 @@ function showFieldError(input: HTMLInputElement): void {
   input.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+function firstInvalidInput(): HTMLInputElement | undefined {
+  const missingInput = Array.from(form.querySelectorAll<HTMLInputElement>('input[required]')).find(
+    input => !input.value.trim()
+  );
+  if (missingInput) {
+    return missingInput;
+  }
+  if (!validateScore()) {
+    return scoreInput;
+  }
+  if (!validateHandicap()) {
+    return handicapInput;
+  }
+  return form.querySelector<HTMLInputElement>('input:invalid') ?? undefined;
+}
+
 form.addEventListener('change', event => {
   const target = event.target as HTMLInputElement;
   if (target.name === 'matchType') {
@@ -292,6 +318,9 @@ form.addEventListener('change', event => {
 
 form.addEventListener('input', event => {
   clearFieldError();
+  if (event.target === scoreInput) {
+    validateScore();
+  }
   if (event.target === handicapInput) {
     validateHandicap();
   }
@@ -302,12 +331,9 @@ form.addEventListener('submit', event => {
   event.preventDefault();
   formMessage.hidden = true;
   clearFieldError();
-  const validHandicap = validateHandicap();
-  if (!validHandicap || !form.checkValidity()) {
-    const invalidInput = form.querySelector<HTMLInputElement>('input:invalid');
-    if (invalidInput) {
-      showFieldError(invalidInput);
-    }
+  const invalidInput = firstInvalidInput();
+  if (invalidInput) {
+    showFieldError(invalidInput);
     return;
   }
 

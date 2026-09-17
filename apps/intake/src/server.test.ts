@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isValidOdds } from '../../../packages/shared/src/match.ts';
+import { isValidOdds, isValidScore } from '../../../packages/shared/src/match.ts';
 import {
   escapeForSheet,
   isoWeekTabName,
@@ -141,6 +141,16 @@ describe('odds validation', () => {
 
   it.each(['10', '15', '10/15', '-40/0', 'half15/15', '-half15/15', 'h0/15', '15//0'])('rejects %s', odds => {
     expect(isValidOdds(odds)).toBe(false);
+  });
+});
+
+describe('score validation', () => {
+  it.each(['6-2,6-1', '6/2 6/1', '10-8', '6–5, 2—1'])('accepts %s', score => {
+    expect(isValidScore(score)).toBe(true);
+  });
+
+  it.each(['6', 'six-two', '6-', '6-2,', '6-2 unfinished', '2-1 incomplete', ''])('rejects %s', score => {
+    expect(isValidScore(score)).toBe(false);
   });
 });
 

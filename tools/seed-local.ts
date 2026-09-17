@@ -114,8 +114,8 @@ const week38: QueueRecord[] = [
     matchDate: '2026-09-17',
     side1Player1: 'Pig-Pen',
     side2Player1: 'Violet Gray',
-    scoreOriginal: '6-5, 2-1 unfinished',
-    scoreNormalized: '6/5 2/1 unfinished',
+    scoreOriginal: '6-5, 2-1',
+    scoreNormalized: '6/5 2/1',
     handicapOriginal: '-h15/15',
     status: 'Withdrawn',
     updatedAt: '2026-09-17T08:43:00-04:00'
