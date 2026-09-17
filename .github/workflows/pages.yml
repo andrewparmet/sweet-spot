@@ -7,6 +7,12 @@ on:
     paths:
       - .github/workflows/pages.yml
       - apps/pages/**
+      - apps/admin/.deployment.staging-id
+      - apps/intake/.deployment.staging-id
+      - package-lock.json
+      - package.json
+      - tools/build-pages.ts
+      - tools/components.ts
   workflow_dispatch:
 
 permissions:
@@ -29,10 +35,19 @@ jobs:
         uses: actions/checkout@v6
       - name: Configure Pages
         uses: actions/configure-pages@v5
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build site
+        run: npm run build:pages
       - name: Upload site
         uses: actions/upload-pages-artifact@v4
         with:
-          path: apps/pages
+          path: apps/pages/dist
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4

@@ -6,13 +6,14 @@ tested, and published through the root scripts.
 ## Components
 
 - `apps/intake`: public mobile Apps Script application for player submissions
-- `apps/pages`: full-viewport GitHub Pages entry point for the intake application
+- `apps/pages`: generated full-viewport GitHub Pages routes
 - `apps/admin`: private score-review application
 - `packages/shared`: request, response, and queue types shared by every component
 - `tools`: TypeScript build and publishing commands
 
-The admin application currently has a local review and demo-submission workflow. Its Apps Script deployment and live RTO
-integration will follow the local prototype.
+The staging admin application requires an RTO account with the Boston `ADM-MATCH` role. It validates the RTO session before
+reading the queue, keeps the token in browser `sessionStorage`, and retains the Peanuts directory and fake RTO match IDs for
+the demo-submission workflow.
 
 ## Commands
 
@@ -24,11 +25,13 @@ npm run seed:local
 npm run inspect:local
 npm run dev:intake
 npm run dev:admin
+npm run build:pages
 ```
 
 The local intake application is served at <http://127.0.0.1:4173>, and the local admin application is served at
-<http://127.0.0.1:4174>. Submissions are written to ignored JSON files under `local-data/`, with one file representing each
-weekly Sheet tab. The admin demo directory is cached in browser `sessionStorage` and cleared when the tab closes.
+<http://127.0.0.1:4174>. Any non-empty credentials enter the local-only admin demo. Submissions are written to ignored JSON
+files under `local-data/`, with one file representing each weekly Sheet tab. The admin demo directory is cached in browser
+`sessionStorage` and cleared when the tab closes.
 
 The intake form enforces required match data in the browser and on the server. After submission, the receipt screen can
 withdraw the queue row and restore the form for correction. Withdrawn rows remain in the queue for audit purposes and are
@@ -42,6 +45,7 @@ Staging and production use separate Apps Script projects, deployments, and queue
 npx clasp login
 npm run deploy:intake:staging
 npm run deploy:intake:production
+npm run deploy:admin:staging
 ```
 
 Each deploy command reconciles its environment: it creates a missing Apps Script project, runs all checks, pushes generated
@@ -54,9 +58,24 @@ one manual step in the Apps Script editor: open **Deploy > Manage deployments**,
 access** to **Anyone**, deploy, and accept the authorization prompt. Later deploys update the same deployment ID and need no
 manual work. If verification finds the deployment owner-only, the command prints the editor URL and these instructions.
 
-The setup function creates the private queue spreadsheet and logs its URL. Scores are grouped into ISO-week tabs such as
+The intake setup function creates the private queue spreadsheet and logs its URL. Scores are grouped into ISO-week tabs such as
 `2026-W38`. The review application will scan every weekly tab and present one inbox containing every row that is neither
 `Submitted` nor `Withdrawn`.
+
+The staging admin deployment reads its queue spreadsheet ID from `apps/admin/staging.json`. Apps Script project IDs and stable
+deployment IDs are checked in beside each component. Generated build artifacts remain ignored.
+
+## GitHub Pages
+
+The Pages workflow runs `npm run build:pages` and publishes `apps/pages/dist`. The build reads the stable Apps Script
+deployment IDs and generates these routes:
+
+- `/sweet-spot/staging/`, which hosts match entry
+- `/sweet-spot/staging/admin/`
+- `/sweet-spot/`, which redirects to staging until production routes are introduced
+
+Pushing a relevant configuration or deployment ID change to `main` redeploys Pages. A missing deployment ID fails the Pages
+build instead of publishing a partial route tree.
 
 The intake manifest declares that each web app runs as the project owner with anonymous access. Deployment IDs are stored
 independently under `apps/intake/`.
@@ -68,7 +87,8 @@ queue file requires replacing `SpreadsheetApp` with the Sheets API and its `driv
 
 ## RTO administrator sessions
 
-The private review application will authenticate directly with RTO. It will discard the password after login and keep the
-RTO JWT in browser `sessionStorage` so player matching, handicap validation, duplicate checks, and submissions can share one
-session. Closing the tab or choosing logout clears the token. Credentials and tokens will never be written to Sheets, Apps
-Script properties, logs, or `localStorage`.
+The private review application authenticates through its Apps Script server. The server sends the credentials to RTO over
+HTTPS, validates the returned token, and requires the Boston match-administrator role. It discards the password after login
+and returns the RTO JWT to browser `sessionStorage`. Each protected server operation revalidates the token with RTO. Closing
+the tab or choosing sign out clears the token. Credentials and tokens are never written to Sheets, Apps Script properties,
+logs, or `localStorage`.

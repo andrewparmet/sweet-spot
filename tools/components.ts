@@ -11,6 +11,7 @@ export interface AppsScriptComponent {
 }
 
 export interface AppsScriptDeployment extends AppsScriptComponent {
+  readonly configFile?: string;
   readonly deploymentIdFile: string;
   readonly environment: 'production' | 'staging';
   readonly projectFile: string;
@@ -32,6 +33,15 @@ export const appsScriptComponents = {
 } as const satisfies Record<string, AppsScriptComponent>;
 
 export const appsScriptDeployments = {
+  'admin-staging': {
+    ...appsScriptComponents.admin,
+    environment: 'staging',
+    name: 'admin-staging',
+    title: 'Sweet Spot Admin (Staging)',
+    projectFile: path.join(repositoryRoot, 'apps', 'admin', '.clasp.staging.json'),
+    deploymentIdFile: path.join(repositoryRoot, 'apps', 'admin', '.deployment.staging-id'),
+    configFile: path.join(repositoryRoot, 'apps', 'admin', 'staging.json')
+  },
   'intake-production': {
     ...appsScriptComponents.intake,
     environment: 'production',

@@ -14,6 +14,15 @@ interface DirectoryPlayer {
 type QueueView = 'review' | 'history';
 
 const DIRECTORY_CACHE_KEY = 'sweet-spot-demo-directory-v1';
+const SESSION_TOKEN_KEY = 'sweet-spot-rto-token';
+const loginShell = requiredElement<HTMLElement>('login-shell');
+const adminShell = requiredElement<HTMLElement>('admin-shell');
+const loginForm = requiredElement<HTMLFormElement>('login-form');
+const identifierInput = requiredElement<HTMLInputElement>('identifier');
+const passwordInput = requiredElement<HTMLInputElement>('password');
+const loginButton = requiredElement<HTMLButtonElement>('login-button');
+const loginError = requiredElement<HTMLElement>('login-error');
+const logoutButton = requiredElement<HTMLButtonElement>('logout-button');
 const queueMessage = requiredElement<HTMLElement>('queue-message');
 const queueList = requiredElement<HTMLElement>('queue-list');
 const refreshButton = requiredElement<HTMLButtonElement>('refresh-button');
@@ -34,6 +43,68 @@ const dialogActions = requiredElement<HTMLElement>('dialog-actions');
 let allItems: AdminQueueItem[] = [];
 let activeView: QueueView = 'review';
 let selectedItem: AdminQueueItem | undefined;
+
+interface GoogleScriptRunner {
+  withSuccessHandler(handler: (response: unknown) => void): GoogleScriptRunner;
+  withFailureHandler(handler: (error: { readonly message?: string }) => void): GoogleScriptRunner;
+  [functionName: string]: unknown;
+}
+
+interface GoogleScriptHost {
+  readonly script?: {
+    readonly run?: GoogleScriptRunner;
+  };
+}
+
+function scriptRunner(): GoogleScriptRunner | undefined {
+  return (globalThis as typeof globalThis & { readonly google?: GoogleScriptHost }).google?.script?.run;
+}
+
+function callServer<T>(functionName: string, ...args: unknown[]): Promise<T> {
+  const runner = scriptRunner();
+  if (!runner) {
+    return callLocalServer<T>(functionName, args);
+  }
+  return new Promise((resolve, reject) => {
+    const configured = runner
+      .withSuccessHandler(response => resolve(response as T))
+      .withFailureHandler(error => reject(new Error(error.message || 'The request failed.')));
+    const serverFunction = configured[functionName];
+    if (typeof serverFunction !== 'function') {
+      reject(new Error(`Missing server function: ${functionName}`));
+      return;
+    }
+    serverFunction.apply(configured, args);
+  });
+}
+
+async function callLocalServer<T>(functionName: string, args: readonly unknown[]): Promise<T> {
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY) || '';
+  const routes: Record<string, { readonly method: string; readonly path: string }> = {
+    adminLogin: { method: 'POST', path: '/api/login' },
+    loadAdminQueue: { method: 'GET', path: '/api/queue' },
+    loadPlayerDirectory: { method: 'GET', path: '/api/directory' },
+    demoSubmitMatch: { method: 'POST', path: '/api/submissions/demo' }
+  };
+  const route = routes[functionName];
+  if (!route) {
+    throw new Error(`Missing local route: ${functionName}`);
+  }
+  const response = await fetch(route.path, {
+    method: route.method,
+    headers: {
+      ...(route.method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    ...(route.method === 'POST' ? { body: JSON.stringify(args.at(-1)) } : {}),
+    cache: 'no-store'
+  });
+  const body = (await response.json()) as T & { readonly message?: string };
+  if (!response.ok) {
+    throw new Error(body.message || 'The request failed.');
+  }
+  return body;
+}
 
 function requiredElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -160,14 +231,27 @@ async function loadQueue(): Promise<void> {
   queueMessage.hidden = false;
   queueMessage.textContent = 'Loading queue…';
   try {
-    const response = await fetch('/api/queue', { cache: 'no-store' });
-    const body = (await response.json()) as { readonly items?: AdminQueueItem[]; readonly message?: string };
-    if (!response.ok || !body.items) {
+    const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+    if (!token) {
+      showLogin();
+      return;
+    }
+    const body = await callServer<{ readonly items?: AdminQueueItem[]; readonly message?: string }>(
+      'loadAdminQueue',
+      token
+    );
+    if (!body.items) {
       throw new Error(body.message || 'The queue could not be loaded.');
     }
     allItems = body.items;
     render();
   } catch (error) {
+    if (isAuthenticationError(error)) {
+      signOut();
+      loginError.textContent = error instanceof Error ? error.message : 'Sign in again.';
+      loginError.hidden = false;
+      return;
+    }
     queueList.replaceChildren();
     queueMessage.textContent = error instanceof Error ? error.message : 'The queue could not be loaded.';
     queueMessage.hidden = false;
@@ -198,9 +282,15 @@ async function loadDirectory(): Promise<DirectoryPlayer[]> {
   if (cached) {
     return cached;
   }
-  const [response] = await Promise.all([fetch('/api/directory', { cache: 'no-store' }), delay(900)]);
-  const body = (await response.json()) as { readonly players?: DirectoryPlayer[]; readonly message?: string };
-  if (!response.ok || !body.players) {
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+  if (!token) {
+    throw new Error('Sign in again.');
+  }
+  const [body] = await Promise.all([
+    callServer<{ readonly players?: DirectoryPlayer[]; readonly message?: string }>('loadPlayerDirectory', token),
+    delay(900)
+  ]);
+  if (!body.players) {
     throw new Error(body.message || 'The player directory could not be loaded.');
   }
   sessionStorage.setItem(DIRECTORY_CACHE_KEY, JSON.stringify(body.players));
@@ -293,13 +383,16 @@ async function demoSubmit(): Promise<void> {
   closeDialogButton.disabled = true;
   dialogError.hidden = true;
   try {
-    const response = await fetch('/api/submissions/demo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ submissionId: selectedItem.record.submissionId, playerIds })
-    });
-    const body = (await response.json()) as { readonly submitted?: boolean; readonly message?: string };
-    if (!response.ok || !body.submitted) {
+    const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+    if (!token) {
+      throw new Error('Sign in again.');
+    }
+    const body = await callServer<{ readonly submitted?: boolean; readonly message?: string }>(
+      'demoSubmitMatch',
+      token,
+      { submissionId: selectedItem.record.submissionId, playerIds }
+    );
+    if (!body.submitted) {
       throw new Error(body.message || 'The demo submission failed.');
     }
     reviewDialog.close();
@@ -315,6 +408,59 @@ async function demoSubmit(): Promise<void> {
   }
 }
 
+function isAuthenticationError(error: unknown): boolean {
+  return error instanceof Error && /sign in|administrator|session|authentication/i.test(error.message);
+}
+
+function showLogin(): void {
+  adminShell.hidden = true;
+  loginShell.hidden = false;
+}
+
+function showAdmin(): void {
+  loginShell.hidden = true;
+  adminShell.hidden = false;
+}
+
+function signOut(): void {
+  sessionStorage.removeItem(SESSION_TOKEN_KEY);
+  sessionStorage.removeItem(DIRECTORY_CACHE_KEY);
+  passwordInput.value = '';
+  allItems = [];
+  queueList.replaceChildren();
+  showLogin();
+}
+
+async function login(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  loginError.hidden = true;
+  const identifier = identifierInput.value.trim();
+  const password = passwordInput.value;
+  if (!identifier || !password) {
+    loginError.textContent = 'Enter your RTO number or email and password.';
+    loginError.hidden = false;
+    return;
+  }
+  loginButton.disabled = true;
+  loginButton.textContent = 'Signing in…';
+  try {
+    const response = await callServer<{ readonly token?: string }>('adminLogin', { identifier, password });
+    if (!response.token) {
+      throw new Error('RTO sign-in did not return a session.');
+    }
+    sessionStorage.setItem(SESSION_TOKEN_KEY, response.token);
+    passwordInput.value = '';
+    showAdmin();
+    await loadQueue();
+  } catch (error) {
+    loginError.textContent = error instanceof Error ? error.message : 'Sign-in failed.';
+    loginError.hidden = false;
+  } finally {
+    loginButton.disabled = false;
+    loginButton.textContent = 'Sign in';
+  }
+}
+
 refreshButton.addEventListener('click', () => void loadQueue());
 reviewTab.addEventListener('click', () => {
   activeView = 'review';
@@ -327,9 +473,16 @@ historyTab.addEventListener('click', () => {
 closeDialogButton.addEventListener('click', closeReview);
 cancelDialogButton.addEventListener('click', closeReview);
 demoSubmitButton.addEventListener('click', () => void demoSubmit());
+loginForm.addEventListener('submit', event => void login(event));
+logoutButton.addEventListener('click', signOut);
 reviewDialog.addEventListener('cancel', event => {
   if (demoSubmitButton.disabled) {
     event.preventDefault();
   }
 });
-void loadQueue();
+if (sessionStorage.getItem(SESSION_TOKEN_KEY)) {
+  showAdmin();
+  void loadQueue();
+} else {
+  showLogin();
+}

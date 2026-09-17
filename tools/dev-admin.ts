@@ -6,6 +6,7 @@ import { demoSubmitLocalRecord, readLocalTabs } from './local-queue.ts';
 
 const PORT = 4174;
 const MAX_REQUEST_BYTES = 20_000;
+const LOCAL_TOKEN = 'local-admin-session';
 const htmlPath = path.join(appsScriptComponents.admin.distDirectory, 'Index.html');
 const directory = [
   { id: '10001', name: 'Charlie Brown', handicap: 42.1 },
@@ -26,6 +27,22 @@ const server = http.createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && request.url === '/') {
       send(response, 200, 'text/html; charset=utf-8', await readFile(htmlPath, 'utf8'));
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/api/login') {
+      const payload = JSON.parse(await readBody(request)) as {
+        readonly identifier?: string;
+        readonly password?: string;
+      };
+      if (!payload.identifier?.trim() || !payload.password) {
+        send(response, 400, 'application/json', JSON.stringify({ message: 'Enter both login fields.' }));
+        return;
+      }
+      send(response, 200, 'application/json', JSON.stringify({ token: LOCAL_TOKEN }));
+      return;
+    }
+    if (request.url?.startsWith('/api/') && request.headers.authorization !== `Bearer ${LOCAL_TOKEN}`) {
+      send(response, 401, 'application/json', JSON.stringify({ message: 'Sign in again.' }));
       return;
     }
     if (request.method === 'GET' && request.url === '/api/queue') {

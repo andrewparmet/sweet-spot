@@ -31,8 +31,93 @@ body {
 }
 
 button,
+input,
 select {
   font: inherit;
+}
+
+.login-shell {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 1rem;
+}
+
+.login-card {
+  width: min(100%, 28rem);
+  padding: 1.5rem;
+  border: 1px solid rgba(23, 53, 47, 0.08);
+  border-radius: 1.2rem;
+  background: var(--surface);
+  box-shadow: 0 0.8rem 2rem rgba(30, 61, 52, 0.1);
+}
+
+.login-heading,
+.header-actions {
+  display: flex;
+  align-items: center;
+}
+
+.login-heading {
+  gap: 0.9rem;
+}
+
+.ball {
+  width: 3rem;
+  height: 3rem;
+  flex: 0 0 auto;
+  border: 1px solid rgba(70, 75, 20, 0.18);
+  border-radius: 50%;
+  background: #d8df45;
+  box-shadow: inset -0.35rem -0.35rem 0.6rem rgba(87, 94, 21, 0.15);
+}
+
+.login-copy {
+  margin: 1.25rem 0;
+  color: var(--muted);
+}
+
+#login-form,
+#login-form label {
+  display: grid;
+}
+
+#login-form {
+  gap: 1rem;
+}
+
+#login-form label {
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+#login-form input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  color: var(--ink);
+  background: white;
+}
+
+#login-form input:focus-visible,
+.text-button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.login-error {
+  padding: 0.75rem;
+  border-radius: 0.65rem;
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+#login-button {
+  width: 100%;
 }
 
 .page-shell {
@@ -54,6 +139,20 @@ select {
   justify-content: space-between;
   gap: 1rem;
   padding: 0 0.25rem 1.25rem;
+}
+
+.header-actions {
+  gap: 0.75rem;
+}
+
+.text-button {
+  min-height: 2.5rem;
+  padding: 0 0.5rem;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .eyebrow {

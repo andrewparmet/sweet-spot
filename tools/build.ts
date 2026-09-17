@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { build } from 'esbuild';
-import { appsScriptComponents, repositoryRoot } from './components.ts';
+import { appsScriptComponents, getAppsScriptDeployment, repositoryRoot } from './components.ts';
 
 const SERVER_GLOBAL = 'SweetSpotIntakeServer';
 const intakeEnvironment = process.argv[2] ?? 'staging';
@@ -16,6 +16,49 @@ async function buildAdmin(): Promise<void> {
   await rm(component.distDirectory, { recursive: true, force: true });
   await mkdir(component.distDirectory, { recursive: true });
 
+  const deployment = getAppsScriptDeployment('admin-staging');
+  if (!deployment.configFile) {
+    throw new Error(`No configuration file is defined for ${deployment.name}.`);
+  }
+  const config = JSON.parse(await readFile(deployment.configFile, 'utf8')) as { readonly queueSpreadsheetId?: unknown };
+  if (typeof config.queueSpreadsheetId !== 'string' || !config.queueSpreadsheetId) {
+    throw new Error(`No queueSpreadsheetId is defined in ${deployment.configFile}.`);
+  }
+
+  const serverResult = await build({
+    bundle: true,
+    entryPoints: [path.join(sourceDirectory, 'server.ts')],
+    format: 'iife',
+    globalName: 'SweetSpotAdminServer',
+    platform: 'neutral',
+    target: 'es2020',
+    write: false
+  });
+  const serverBundle = outputText(serverResult.outputFiles, '.js');
+  const spreadsheetId = JSON.stringify(config.queueSpreadsheetId);
+  const appsScriptWrappers = `
+function doGet() {
+  return SweetSpotAdminServer.doGet();
+}
+
+function adminLogin(payload) {
+  return SweetSpotAdminServer.adminLogin(payload);
+}
+
+function loadAdminQueue(token) {
+  return SweetSpotAdminServer.loadAdminQueue(token, ${spreadsheetId});
+}
+
+function loadPlayerDirectory(token) {
+  return SweetSpotAdminServer.loadPlayerDirectory(token);
+}
+
+function demoSubmitMatch(token, payload) {
+  return SweetSpotAdminServer.demoSubmitMatch(token, payload, ${spreadsheetId});
+}
+`;
+  await writeFile(path.join(component.distDirectory, 'Code.gs'), `${serverBundle}${appsScriptWrappers}`);
+
   const clientResult = await build({
     bundle: true,
     entryPoints: [path.join(sourceDirectory, 'client.ts')],
@@ -25,9 +68,10 @@ async function buildAdmin(): Promise<void> {
     write: false
   });
   const clientBundle = outputText(clientResult.outputFiles, '.js').replaceAll('</script', '<\\/script');
-  const [htmlTemplate, stylesheet] = await Promise.all([
+  const [htmlTemplate, stylesheet, manifest] = await Promise.all([
     readFile(path.join(sourceDirectory, 'index.html'), 'utf8'),
-    readFile(path.join(sourceDirectory, 'styles.css'), 'utf8')
+    readFile(path.join(sourceDirectory, 'styles.css'), 'utf8'),
+    readFile(path.join(component.directory, 'appsscript.json'), 'utf8')
   ]);
   const html = htmlTemplate
     .replace('/*__SWEET_SPOT_STYLES__*/', () => stylesheet.replaceAll('</style', '<\\/style'))
@@ -38,7 +82,10 @@ async function buildAdmin(): Promise<void> {
   if (html.match(/<!doctype html>/gi)?.length !== 1) {
     throw new Error('The admin build produced duplicate HTML documents.');
   }
-  await writeFile(path.join(component.distDirectory, 'Index.html'), html);
+  await Promise.all([
+    writeFile(path.join(component.distDirectory, 'Index.html'), html),
+    writeFile(path.join(component.distDirectory, 'appsscript.json'), manifest)
+  ]);
 }
 
 async function buildIntake(): Promise<void> {

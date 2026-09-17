@@ -10,12 +10,40 @@
     </style>
   </head>
   <body>
-    <main class="page-shell">
+    <main id="login-shell" class="login-shell">
+      <section class="login-card" aria-labelledby="login-title">
+        <div class="login-heading">
+          <div class="ball" aria-hidden="true"></div>
+          <div>
+            <p class="eyebrow">Staging</p>
+            <h1 id="login-title">Score review</h1>
+          </div>
+        </div>
+        <p class="login-copy">Sign in with an RTO match administrator account.</p>
+        <form id="login-form" novalidate>
+          <label>
+            <span>RTO number or email</span>
+            <input id="identifier" name="identifier" autocomplete="username" required />
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="password" name="password" type="password" autocomplete="current-password" required />
+          </label>
+          <div id="login-error" class="login-error" role="alert" hidden></div>
+          <button id="login-button" class="primary-button" type="submit">Sign in</button>
+        </form>
+      </section>
+    </main>
+
+    <main id="admin-shell" class="page-shell" hidden>
       <header class="page-header">
         <div>
           <h1>Score review</h1>
         </div>
-        <div class="environment">Local preview</div>
+        <div class="header-actions">
+          <div class="environment">Staging</div>
+          <button id="logout-button" class="text-button" type="button">Sign out</button>
+        </div>
       </header>
 
       <section class="inbox" aria-label="Score queue">
