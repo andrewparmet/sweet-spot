@@ -1,9 +1,14 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import process from 'node:process';
 import { build } from 'esbuild';
 import { appsScriptComponents, repositoryRoot } from './components.ts';
 
 const SERVER_GLOBAL = 'SweetSpotIntakeServer';
+const intakeEnvironment = process.argv[2] ?? 'staging';
+if (intakeEnvironment !== 'staging' && intakeEnvironment !== 'production') {
+  throw new Error('Build environment must be staging or production.');
+}
 
 async function buildAdmin(): Promise<void> {
   const component = appsScriptComponents.admin;
@@ -54,14 +59,17 @@ async function buildIntake(): Promise<void> {
   const serverBundle = outputText(serverResult.outputFiles, '.js');
   const appsScriptWrappers = `
 function doGet() {
+  ${SERVER_GLOBAL}.ensureSetup('${intakeEnvironment}');
   return ${SERVER_GLOBAL}.doGet();
 }
 
 function submitMatch(payload) {
+  ${SERVER_GLOBAL}.ensureSetup('${intakeEnvironment}');
   return ${SERVER_GLOBAL}.submitMatch(payload);
 }
 
 function undoSubmission(payload) {
+  ${SERVER_GLOBAL}.ensureSetup('${intakeEnvironment}');
   return ${SERVER_GLOBAL}.undoSubmission(payload);
 }
 

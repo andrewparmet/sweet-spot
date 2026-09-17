@@ -10,16 +10,14 @@
   "scripts": {
     "build": "tsx tools/build.ts",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
-    "create:intake:production": "tsx tools/create-apps-script.ts intake-production",
-    "create:intake:staging": "tsx tools/create-apps-script.ts intake-staging",
+    "deploy:intake:production": "tsx tools/publish.ts intake-production",
+    "deploy:intake:staging": "tsx tools/publish.ts intake-staging",
     "dev:admin": "npm run build && tsx tools/dev-admin.ts",
     "dev:intake": "npm run build && tsx tools/dev-intake.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "inspect:local": "tsx tools/inspect-local.ts",
     "lint": "eslint .",
-    "publish:intake:production": "tsx tools/publish.ts intake-production",
-    "publish:intake:staging": "tsx tools/publish.ts intake-staging",
     "seed:local": "tsx tools/seed-local.ts",
     "test": "vitest run",
     "typecheck": "node node_modules/@typescript/native/bin/tsc --noEmit"

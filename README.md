@@ -39,22 +39,31 @@ Staging and production use separate Apps Script projects, deployments, and queue
 
 ```shell
 npx clasp login
-npm run create:intake:staging
-npm run publish:intake:staging
-npm run create:intake:production
-npm run publish:intake:production
+npm run deploy:intake:staging
+npm run deploy:intake:production
 ```
 
-Run `setupStaging_` once in the staging project and `setupProduction_` once in the production project. Each publish command
-runs type checking, tests, and the production build before pushing generated artifacts and updating that environment's
-stable deployment.
+Each deploy command reconciles its environment: it creates a missing Apps Script project, runs all checks, pushes generated
+artifacts, creates or updates the stable deployment, provisions the queue spreadsheet on first load, and verifies the live
+page. The checked-in `.clasp.<environment>.json` and `.deployment.<environment>-id` files bind each environment to its Google
+resources.
+
+Google's deployment API does not apply a web app's access setting. The first deploy for each environment therefore requires
+one manual step in the Apps Script editor: open **Deploy > Manage deployments**, edit the generated deployment, set **Who has
+access** to **Anyone**, deploy, and accept the authorization prompt. Later deploys update the same deployment ID and need no
+manual work. If verification finds the deployment owner-only, the command prints the editor URL and these instructions.
 
 The setup function creates the private queue spreadsheet and logs its URL. Scores are grouped into ISO-week tabs such as
 `2026-W38`. The review application will scan every weekly tab and present one inbox containing every row that is neither
 `Submitted` nor `Withdrawn`.
 
-The intake manifest deploys each web app as the project owner with anonymous access. Deployment IDs are stored independently
-under `apps/intake/`.
+The intake manifest declares that each web app runs as the project owner with anonymous access. Deployment IDs are stored
+independently under `apps/intake/`.
+
+The manifest pins the intake application's OAuth access to Google Sheets. The current `SpreadsheetApp` implementation can
+read and write every spreadsheet available to the deploying account, although the application stores and opens only its own
+queue spreadsheet ID. It has no Gmail, Calendar, Contacts, general Drive-file, or RTO access. Restricting access to only the
+queue file requires replacing `SpreadsheetApp` with the Sheets API and its `drive.file` scope.
 
 ## RTO administrator sessions
 

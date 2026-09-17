@@ -12,6 +12,7 @@ export interface AppsScriptComponent {
 
 export interface AppsScriptDeployment extends AppsScriptComponent {
   readonly deploymentIdFile: string;
+  readonly environment: 'production' | 'staging';
   readonly projectFile: string;
 }
 
@@ -33,6 +34,7 @@ export const appsScriptComponents = {
 export const appsScriptDeployments = {
   'intake-production': {
     ...appsScriptComponents.intake,
+    environment: 'production',
     name: 'intake-production',
     title: 'Sweet Spot Intake',
     projectFile: path.join(repositoryRoot, 'apps', 'intake', '.clasp.production.json'),
@@ -40,6 +42,7 @@ export const appsScriptDeployments = {
   },
   'intake-staging': {
     ...appsScriptComponents.intake,
+    environment: 'staging',
     name: 'intake-staging',
     title: 'Sweet Spot Intake (Staging)',
     projectFile: path.join(repositoryRoot, 'apps', 'intake', '.clasp.staging.json'),

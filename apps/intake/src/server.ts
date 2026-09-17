@@ -30,11 +30,30 @@ const THROTTLE_SECONDS = 3;
 export function doGet(): GoogleAppsScript.HTML.HtmlOutput {
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Match Entry')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
-    .addMetaTag('theme-color', '#153f35');
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
 }
 
 export function setup(environment: 'production' | 'staging'): string {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10_000);
+  try {
+    return setupLocked(environment);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+export function ensureSetup(environment: 'production' | 'staging'): void {
+  const properties = PropertiesService.getScriptProperties();
+  const configuredEnvironment = properties.getProperty(ENVIRONMENT_PROPERTY);
+  const spreadsheetId = properties.getProperty(SPREADSHEET_ID_PROPERTY);
+  if (configuredEnvironment === environment && spreadsheetId) {
+    return;
+  }
+  setup(environment);
+}
+
+function setupLocked(environment: 'production' | 'staging'): string {
   const properties = PropertiesService.getScriptProperties();
   const configuredEnvironment = properties.getProperty(ENVIRONMENT_PROPERTY);
   if (configuredEnvironment && configuredEnvironment !== environment) {
