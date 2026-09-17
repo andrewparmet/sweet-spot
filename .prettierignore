@@ -1,0 +1,4 @@
+apps/*/dist/
+local-data/
+node_modules/
+package-lock.json

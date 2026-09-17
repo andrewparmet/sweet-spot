@@ -1,0 +1,42 @@
+{
+  "name": "sweet-spot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsx tools/build.ts",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
+    "create:intake:production": "tsx tools/create-apps-script.ts intake-production",
+    "create:intake:staging": "tsx tools/create-apps-script.ts intake-staging",
+    "dev:admin": "npm run build && tsx tools/dev-admin.ts",
+    "dev:intake": "npm run build && tsx tools/dev-intake.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "inspect:local": "tsx tools/inspect-local.ts",
+    "lint": "eslint .",
+    "publish:intake:production": "tsx tools/publish.ts intake-production",
+    "publish:intake:staging": "tsx tools/publish.ts intake-staging",
+    "seed:local": "tsx tools/seed-local.ts",
+    "test": "vitest run",
+    "typecheck": "node node_modules/@typescript/native/bin/tsc --noEmit"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@google/clasp": "3.4.1",
+    "@types/google-apps-script": "2.0.13",
+    "@types/node": "22.20.3",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "esbuild": "0.28.2",
+    "eslint": "10.10.0",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.7",
+    "tsx": "4.23.13",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-eslint": "8.70.0",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#17352f" />
+    <title>Sweet Spot Admin</title>
+    <style>
+      /*__SWEET_SPOT_STYLES__*/
+    </style>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="page-header">
+        <div>
+          <h1>Score review</h1>
+        </div>
+        <div class="environment">Local preview</div>
+      </header>
+
+      <section class="inbox" aria-label="Score queue">
+        <div class="section-heading">
+          <div class="queue-tabs" role="tablist" aria-label="Queue view">
+            <button id="review-tab" type="button" role="tab" aria-selected="true">Needs review</button>
+            <button id="history-tab" type="button" role="tab" aria-selected="false">History</button>
+          </div>
+          <button id="refresh-button" type="button">Refresh</button>
+        </div>
+        <div id="queue-message" class="queue-message" role="status">Loading queue…</div>
+        <div id="queue-list" class="queue-list"></div>
+      </section>
+    </main>
+
+    <dialog id="review-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-shell">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">Demo submission</p>
+            <h2 id="dialog-title">Review score</h2>
+          </div>
+          <button id="close-dialog" class="close-button" type="button" aria-label="Close">×</button>
+        </div>
+        <div id="dialog-loading" class="dialog-loading" role="status">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="loading-label">Loading player directory…</span>
+        </div>
+        <div id="dialog-content" hidden>
+          <div id="dialog-match" class="dialog-match"></div>
+          <div id="player-matches" class="player-matches"></div>
+          <p class="demo-note">Demo mode writes a fake RTO match ID to the local queue.</p>
+        </div>
+        <div id="dialog-error" class="dialog-error" role="alert" hidden></div>
+        <div id="dialog-actions" class="dialog-actions" hidden>
+          <button id="cancel-dialog" class="secondary-button" type="button">Cancel</button>
+          <button id="demo-submit" class="primary-button" type="button">Demo submit</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script>
+      /*__SWEET_SPOT_SCRIPT__*/
+    </script>
+  </body>
+</html>

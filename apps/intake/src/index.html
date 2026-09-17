@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <base target="_top" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#153f35" />
+    <title>Match Entry</title>
+    <style>
+      /*__SWEET_SPOT_STYLES__*/
+    </style>
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="card" aria-labelledby="page-title">
+        <header class="page-header">
+          <div class="ball-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" focusable="false">
+              <path class="seam-ridge" d="M9-2C17 11 17 37 9 50M39-2C31 11 31 37 39 50" />
+              <path
+                class="seam-stitches"
+                d="M9.5 4.2l4-2M11.5 10.8l4-2M12.7 18l4-2M13 25l4-2M12.7 32l4-2M11.5 39.2l4-2M9.5 45.8l4-2M34.5 2.2l4 2M32.5 8.8l4 2M31.3 16l4 2M31 23l4 2M31.3 30l4 2M32.5 37.2l4 2M34.5 43.8l4 2"
+              />
+            </svg>
+          </div>
+          <div>
+            <h1 id="page-title">Match Entry</h1>
+          </div>
+        </header>
+
+        <form id="match-form" novalidate>
+          <fieldset class="field-group">
+            <legend>Match</legend>
+            <div class="segmented-control" role="radiogroup" aria-label="Match type">
+              <label>
+                <input type="radio" name="matchType" value="S" checked />
+                <span>Singles</span>
+              </label>
+              <label>
+                <input type="radio" name="matchType" value="D" />
+                <span>Doubles</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="field-group team-group">
+            <legend>Side 1</legend>
+            <label class="text-field">
+              <input
+                name="side1Player1"
+                type="text"
+                autocomplete="name"
+                autocapitalize="words"
+                maxlength="100"
+                placeholder="Joe Cool or J Cool"
+                aria-label="Side 1 player"
+                required
+              />
+            </label>
+            <label class="text-field partner-field" hidden>
+              <span>Partner</span>
+              <input name="side1Player2" type="text" autocomplete="name" autocapitalize="words" maxlength="100" />
+            </label>
+          </fieldset>
+
+          <fieldset class="field-group team-group">
+            <legend>Side 2</legend>
+            <label class="text-field">
+              <input
+                name="side2Player1"
+                type="text"
+                autocomplete="name"
+                autocapitalize="words"
+                maxlength="100"
+                aria-label="Side 2 player"
+                required
+              />
+            </label>
+            <label class="text-field partner-field" hidden>
+              <span>Partner</span>
+              <input name="side2Player2" type="text" autocomplete="name" autocapitalize="words" maxlength="100" />
+            </label>
+          </fieldset>
+
+          <fieldset class="field-group">
+            <legend>Result</legend>
+            <label class="text-field">
+              <input
+                name="score"
+                type="text"
+                autocapitalize="none"
+                maxlength="100"
+                placeholder="6-2,6-1"
+                aria-label="Score"
+                required
+              />
+            </label>
+          </fieldset>
+
+          <fieldset class="field-group">
+            <legend>Handicap played</legend>
+            <div class="segmented-control" role="radiogroup" aria-label="Handicap entry type">
+              <label>
+                <input type="radio" name="handicapType" value="odds" checked />
+                <span>Odds</span>
+              </label>
+              <label>
+                <input type="radio" name="handicapType" value="difference" />
+                <span>Difference</span>
+              </label>
+            </div>
+            <label class="text-field handicap-field">
+              <input
+                name="handicap"
+                type="text"
+                inputmode="text"
+                autocapitalize="none"
+                maxlength="60"
+                placeholder="-15/15 or -h15/15"
+                aria-label="Odds played"
+                required
+              />
+            </label>
+          </fieldset>
+
+          <label class="check-field">
+            <input name="tournament" type="checkbox" />
+            <span class="check-box" aria-hidden="true"></span>
+            <span>Tournament</span>
+          </label>
+
+          <div class="honeypot" aria-hidden="true">
+            <label>Website <input name="website" type="text" tabindex="-1" autocomplete="off" /></label>
+          </div>
+
+          <div id="form-message" class="form-message" role="alert" aria-live="polite" hidden></div>
+
+          <div class="submit-dock">
+            <button id="submit-button" type="submit">
+              <span class="button-label">Submit score</span>
+              <span class="button-spinner" aria-hidden="true" hidden></span>
+            </button>
+          </div>
+        </form>
+
+        <section id="success-view" class="success-view" hidden aria-labelledby="success-title" tabindex="-1">
+          <div class="success-icon" aria-hidden="true">✓</div>
+          <p class="eyebrow">Score received</p>
+          <h2 id="success-title">You're all set.</h2>
+          <p class="receipt-copy">Receipt <strong id="receipt-number"></strong></p>
+          <div id="undo-message" class="form-message" role="alert" aria-live="polite" hidden></div>
+          <button id="another-score" class="secondary-button" type="button">Enter another score</button>
+          <button id="undo-submission" class="text-button" type="button">Undo submission</button>
+        </section>
+      </section>
+    </main>
+
+    <script>
+      /*__SWEET_SPOT_SCRIPT__*/
+    </script>
+  </body>
+</html>
