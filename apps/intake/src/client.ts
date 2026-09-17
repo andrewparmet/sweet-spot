@@ -11,12 +11,9 @@ import type {
 const DRAFT_KEY = 'sweet-spot-draft-v1';
 const CLIENT_ID_KEY = 'sweet-spot-client-id-v1';
 const form = requiredElement<HTMLFormElement>('match-form');
-const successView = requiredElement<HTMLElement>('success-view');
 const formMessage = requiredElement<HTMLElement>('form-message');
 const submitButton = requiredElement<HTMLButtonElement>('submit-button');
 const buttonLabel = requiredDescendant<HTMLElement>(submitButton, '.button-label');
-const undoButton = requiredElement<HTMLButtonElement>('undo-submission');
-const undoMessage = requiredElement<HTMLElement>('undo-message');
 const partnerFields = Array.from(document.querySelectorAll<HTMLElement>('.partner-field'));
 const handicapInput = form.elements.namedItem('handicap') as HTMLInputElement;
 const scoreInput = form.elements.namedItem('score') as HTMLInputElement;
@@ -166,37 +163,28 @@ function restoreDraft(): void {
   }
 }
 
-function setSubmitted(submitted: boolean): void {
-  submitButton.disabled = submitted;
-  buttonLabel.textContent = submitted ? 'Submitted' : 'Submit score';
+function setSubmitButton(mode: 'pending' | 'submit' | 'undo'): void {
+  submitButton.type = mode === 'submit' ? 'submit' : 'button';
+  submitButton.disabled = mode === 'pending';
+  buttonLabel.textContent = mode === 'submit' ? 'Submit score' : 'Undo';
 }
 
 function setFormLocked(locked: boolean): void {
   Array.from(form.elements).forEach(control => {
-    if (control === undoButton) {
-      return;
-    }
     if (control instanceof HTMLInputElement || control instanceof HTMLButtonElement) {
       control.disabled = locked;
     }
   });
 }
 
-function setUndoVisible(visible: boolean): void {
-  successView.classList.toggle('visible', visible);
-  successView.setAttribute('aria-hidden', String(!visible));
-}
-
 function showError(error: Error): void {
   lastSubmission = undefined;
-  setUndoVisible(false);
-  setUndoing(false);
   formMessage.classList.remove('notice');
   formMessage.textContent = error.message || 'The score could not be submitted. Try again.';
   formMessage.hidden = false;
   formMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   setFormLocked(false);
-  setSubmitted(false);
+  setSubmitButton('submit');
 }
 
 function showSuccess(result: MatchSubmissionResponse): void {
@@ -205,24 +193,14 @@ function showSuccess(result: MatchSubmissionResponse): void {
     requestId: lastSubmittedDraft?.requestId ?? pendingRequestId
   };
   localStorage.removeItem(DRAFT_KEY);
-  setUndoing(false);
-  window.requestAnimationFrame(() => {
-    window.scrollTo({
-      top: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight),
-      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
-    });
-  });
-}
-
-function setUndoing(undoing: boolean): void {
-  undoButton.disabled = undoing;
-  undoButton.textContent = undoing ? 'Undoing…' : 'Undo submission';
+  setSubmitButton('undo');
 }
 
 function showUndoError(error: Error): void {
-  undoMessage.textContent = error.message || 'The submission could not be undone. Try again.';
-  undoMessage.hidden = false;
-  setUndoing(false);
+  formMessage.classList.remove('notice');
+  formMessage.textContent = error.message || 'The submission could not be undone. Try again.';
+  formMessage.hidden = false;
+  setSubmitButton('undo');
 }
 
 function showUndoSuccess(): void {
@@ -234,10 +212,8 @@ function showUndoSuccess(): void {
   saveDraft();
   lastSubmission = undefined;
   lastSubmittedDraft = undefined;
-  undoMessage.hidden = true;
-  setUndoVisible(false);
   setFormLocked(false);
-  setSubmitted(false);
+  setSubmitButton('submit');
   formMessage.textContent = 'Submission undone. Make any changes, then submit again.';
   formMessage.classList.add('notice');
   formMessage.hidden = false;
@@ -245,7 +221,6 @@ function showUndoSuccess(): void {
   updateHandicapType();
   namedInput('score').focus();
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  setUndoing(false);
 }
 
 function validateHandicap(): boolean {
@@ -347,10 +322,6 @@ form.addEventListener('submit', event => {
     return;
   }
 
-  setSubmitted(true);
-  setFormLocked(true);
-  setUndoVisible(true);
-  undoButton.disabled = true;
   const draft = currentDraft();
   lastSubmittedDraft = draft;
   const payload: MatchSubmissionRequest = {
@@ -358,16 +329,18 @@ form.addEventListener('submit', event => {
     website: namedInput('website').value,
     clientId: getClientId()
   };
+  setFormLocked(true);
+  setSubmitButton('pending');
 
   google.script.run.withSuccessHandler(showSuccess).withFailureHandler(showError).submitMatch(payload);
 });
 
-undoButton.addEventListener('click', () => {
+submitButton.addEventListener('click', () => {
   if (!lastSubmission) {
     return;
   }
-  undoMessage.hidden = true;
-  setUndoing(true);
+  formMessage.hidden = true;
+  setSubmitButton('pending');
   google.script.run
     .withSuccessHandler<UndoSubmissionResponse>(showUndoSuccess)
     .withFailureHandler(showUndoError)
