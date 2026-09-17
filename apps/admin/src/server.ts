@@ -1,25 +1,45 @@
 import { QUEUE_HEADERS, type QueueRecord } from '../../../packages/shared/src/queue.ts';
 import { isValidScore, normalizeScore } from '../../../packages/shared/src/match.ts';
+import { resolvePlayedHandicapDifference } from './rto-match.ts';
 
 const RTO_API = 'https://www.realtennisonline.com/v2/api';
 const BOSTON_ORGANIZATION_ID = 36;
 const BOSTON_TIME_ZONE = 'America/New_York';
 const WEEK_SHEET_NAME_PATTERN = /^\d{4}-W\d{2}$/;
+const LOGIN_RATE_LIMIT = 10;
+const TOKEN_VALIDATION_RATE_LIMIT = 120;
+const RATE_LIMIT_SECONDS = 60;
+
+class RtoMatchSaveError extends Error {
+  constructor(
+    message: string,
+    readonly rejected: boolean,
+    readonly status?: number
+  ) {
+    super(message);
+  }
+}
 
 interface LoginRequest {
   readonly identifier: string;
   readonly password: string;
 }
 
-interface DemoSubmissionRequest {
+interface ReviewedPlayer {
+  readonly id: number;
+  readonly handicap: number;
+}
+
+interface ReviewedSubmissionRequest {
   readonly submissionId: string;
-  readonly playerIds: string[];
+  readonly players: ReviewedPlayer[];
   readonly score: string;
 }
 
 interface RtoRole {
   readonly Role?: string;
   readonly OrgID?: number;
+  readonly StartDate?: string;
   readonly EndDate?: string;
 }
 
@@ -33,6 +53,11 @@ interface DirectoryPlayer {
 interface PlayerSearchResult {
   readonly query: string;
   readonly players: DirectoryPlayer[];
+}
+
+interface ResolvedHandicap {
+  readonly difference: string;
+  readonly type: 'H' | 'L';
 }
 
 export function doGet(): GoogleAppsScript.HTML.HtmlOutput {
@@ -69,17 +94,25 @@ export function loadBostonDirectory(token: unknown, matchType: unknown): { reado
 }
 
 export function adminLogin(payload: unknown): { readonly token: string } {
-  const request = validateLoginRequest(payload);
-  const response = rtoRequest('/User/login', {
-    identifier: request.identifier,
-    password: request.password
-  });
-  const token = readString(response, 'token', 'Token');
-  if (!token) {
-    throw new Error('RTO sign-in did not return a session.');
+  const auditContext = loginAuditContext(payload);
+  try {
+    enforceAdminRateLimit('login', LOGIN_RATE_LIMIT, 'Too many sign-in attempts. Try again in a minute.');
+    const request = validateLoginRequest(payload);
+    const response = rtoRequest('/User/login', {
+      identifier: request.identifier,
+      password: request.password
+    });
+    const token = readString(response, 'token', 'Token');
+    if (!token) {
+      throw new Error('RTO sign-in did not return a session.');
+    }
+    const claims = authorize(token);
+    auditLog('admin_login', { outcome: 'success', userId: numericUserId(claims), ...auditContext });
+    return { token };
+  } catch (error) {
+    auditLog('admin_login', { outcome: 'failed', ...auditContext, error: safeErrorMessage(error) }, 'warning');
+    throw error;
   }
-  authorize(token);
-  return { token };
 }
 
 export function loadAdminQueue(token: unknown, spreadsheetId: string): { readonly items: unknown[] } {
@@ -155,9 +188,16 @@ function searchPlayers(sessionToken: string, type: 'S' | 'D', name: string): Pla
   return { query: name, players: [...playersById.values()] };
 }
 
-export function demoSubmitMatch(token: unknown, payload: unknown, spreadsheetId: string): { readonly submitted: true } {
-  authorize(requiredString(token, 'RTO session'));
-  const request = validateDemoSubmission(payload);
+export function submitReviewedMatch(
+  token: unknown,
+  payload: unknown,
+  spreadsheetId: string,
+  liveRtoSubmission: boolean,
+  tournamentWeightCode: 'X' | 'C'
+): { readonly submitted: true } {
+  const sessionToken = requiredString(token, 'RTO session');
+  const claims = authorize(sessionToken);
+  const request = validateReviewedSubmission(payload);
   const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
   const lock = LockService.getScriptLock();
   lock.waitLock(10_000);
@@ -172,12 +212,107 @@ export function demoSubmitMatch(token: unknown, payload: unknown, spreadsheetId:
         continue;
       }
       const rowNumber = rowOffset + 2;
+      const record = recordFromRow(sheet.getRange(rowNumber, 1, 1, QUEUE_HEADERS.length).getDisplayValues()[0] ?? []);
+      const expectedPlayerCount = record.matchType === 'D' ? 4 : 2;
+      if (request.players.length !== expectedPlayerCount) {
+        throw new Error(`Choose ${expectedPlayerCount} RTO players for this match.`);
+      }
+      if (record.status === 'Submitted' || record.status === 'Withdrawn') {
+        throw new Error('That submission is no longer available for review.');
+      }
+      if (liveRtoSubmission && record.status === 'Ready') {
+        throw new Error('This submission may already have reached RTO and must be reconciled before retrying.');
+      }
       const timestamp = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
-      setCell(sheet, rowNumber, 'Status', 'Submitted');
-      setCell(sheet, rowNumber, 'RTO Player IDs', request.playerIds.join(','));
-      setCell(sheet, rowNumber, 'Score Normalized', normalizeScore(request.score));
-      setCell(sheet, rowNumber, 'RTO Match ID', `demo-${Date.now()}`);
+      const playerIds = request.players.map(player => String(player.id));
+      const score = normalizeScore(request.score);
+      if (!liveRtoSubmission) {
+        setCell(sheet, rowNumber, 'Status', 'Submitted');
+        setCell(sheet, rowNumber, 'RTO Player IDs', playerIds.join(','));
+        setCell(sheet, rowNumber, 'Score Normalized', score);
+        setCell(sheet, rowNumber, 'RTO Match ID', `demo-${Date.now()}`);
+        setCell(sheet, rowNumber, 'Updated At', timestamp);
+        auditLog('match_submission', {
+          environment: 'staging',
+          outcome: 'submitted',
+          submissionId: request.submissionId,
+          userId: numericUserId(claims),
+          playerIds
+        });
+        return { submitted: true };
+      }
+
+      let handicap: ResolvedHandicap;
+      try {
+        handicap = resolveHandicap(sessionToken, record, request.players);
+      } catch (error) {
+        setCell(sheet, rowNumber, 'Status', 'Failed');
+        setCell(sheet, rowNumber, 'Last Error', safeErrorMessage(error));
+        setCell(sheet, rowNumber, 'Updated At', timestamp);
+        auditLog(
+          'match_submission',
+          {
+            environment: 'production',
+            outcome: 'handicap_failed',
+            submissionId: request.submissionId,
+            userId: numericUserId(claims),
+            playerIds,
+            error: safeErrorMessage(error)
+          },
+          'warning'
+        );
+        throw error;
+      }
+      setCell(sheet, rowNumber, 'Status', 'Ready');
+      setCell(sheet, rowNumber, 'RTO Player IDs', playerIds.join(','));
+      setCell(sheet, rowNumber, 'Score Normalized', score);
+      setCell(sheet, rowNumber, 'RTO Handicap Difference', handicap.difference);
+      setCell(sheet, rowNumber, 'Last Error', '');
       setCell(sheet, rowNumber, 'Updated At', timestamp);
+      SpreadsheetApp.flush();
+      auditLog('match_submission', {
+        environment: 'production',
+        outcome: 'started',
+        submissionId: request.submissionId,
+        userId: numericUserId(claims),
+        playerIds
+      });
+
+      let matchId: number;
+      try {
+        matchId = saveRtoMatch(sessionToken, claims, record, request.players, score, handicap, tournamentWeightCode);
+      } catch (error) {
+        if (error instanceof RtoMatchSaveError && error.rejected) {
+          setCell(sheet, rowNumber, 'Status', 'Failed');
+        }
+        setCell(sheet, rowNumber, 'Last Error', safeErrorMessage(error));
+        setCell(sheet, rowNumber, 'Updated At', timestamp);
+        auditLog(
+          'match_submission',
+          {
+            environment: 'production',
+            outcome: error instanceof RtoMatchSaveError && error.rejected ? 'rejected' : 'unknown',
+            submissionId: request.submissionId,
+            userId: numericUserId(claims),
+            playerIds,
+            httpStatus: error instanceof RtoMatchSaveError ? error.status : undefined,
+            error: safeErrorMessage(error)
+          },
+          'warning'
+        );
+        throw error;
+      }
+      setCell(sheet, rowNumber, 'RTO Match ID', String(matchId));
+      setCell(sheet, rowNumber, 'Status', 'Submitted');
+      setCell(sheet, rowNumber, 'Updated At', timestamp);
+      auditLog('match_submission', {
+        environment: 'production',
+        outcome: 'submitted',
+        submissionId: request.submissionId,
+        userId: numericUserId(claims),
+        playerIds,
+        matchId
+      });
       return { submitted: true };
     }
   } finally {
@@ -186,9 +321,214 @@ export function demoSubmitMatch(token: unknown, payload: unknown, spreadsheetId:
   throw new Error('That submission could not be found.');
 }
 
-function authorize(token: string): void {
-  rtoRequest('/User/validate-token', { token }, token);
+function resolveHandicap(token: string, record: QueueRecord, players: readonly ReviewedPlayer[]): ResolvedHandicap {
+  const enteredHandicap = record.handicapOriginal.trim();
+  if (!enteredHandicap || enteredHandicap.replace(/\s+/g, '') === '0/0') {
+    return { difference: '', type: 'L' };
+  }
+  if (record.handicapEntryType === 'difference') {
+    const difference = Number(enteredHandicap);
+    if (!Number.isFinite(difference)) {
+      throw new Error('The handicap difference is invalid.');
+    }
+    return { difference: String(difference), type: 'H' };
+  }
+
+  const calculator = rtoPost('/Utility/odds/calculator', oddsCalculatorPayload(record, players), token);
+  if (!isRecord(calculator)) {
+    throw new Error('RTO returned an unreadable handicap calculation.');
+  }
+  const suggestedDifference = Number(
+    calculator.effectiveHcapDifference ??
+      calculator.EffectiveHcapDifference ??
+      calculator.hcapDifference ??
+      calculator.HcapDifference
+  );
+  if (!Number.isFinite(suggestedDifference)) {
+    throw new Error('RTO did not return a handicap difference.');
+  }
+  const oddsResponse = rtoGet(
+    `/Utility/odds/getAll/${record.matchType}?effectiveDate=${encodeURIComponent(record.matchDate)}`,
+    token
+  );
+  const oddsRows = Array.isArray(oddsResponse)
+    ? oddsResponse
+    : isRecord(oddsResponse) && Array.isArray(oddsResponse.rows ?? oddsResponse.Rows)
+      ? ((oddsResponse.rows ?? oddsResponse.Rows) as unknown[])
+      : undefined;
+  if (!oddsRows) {
+    throw new Error('RTO returned an unreadable odds table.');
+  }
+  return {
+    difference: String(resolvePlayedHandicapDifference(enteredHandicap, oddsRows, suggestedDifference)),
+    type: 'H'
+  };
+}
+
+function oddsCalculatorPayload(record: QueueRecord, players: readonly ReviewedPlayer[]): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    courtID: record.courtId,
+    sd: record.matchType,
+    hl: 'H',
+    piD_p1: players[0]?.id,
+    piD_p2: players[record.matchType === 'D' ? 2 : 1]?.id,
+    p1: players[0]?.handicap,
+    p2: players[record.matchType === 'D' ? 2 : 1]?.handicap,
+    includeTeamHandicaps: false,
+    useFastAutoSuggest: true,
+    effectiveDate: record.matchDate
+  };
+  if (record.matchType === 'D') {
+    payload.piD_p1p = players[1]?.id;
+    payload.piD_p2p = players[3]?.id;
+    payload.p1P = players[1]?.handicap;
+    payload.p2P = players[3]?.handicap;
+  }
+  return payload;
+}
+
+function saveRtoMatch(
+  token: string,
+  claims: Record<string, unknown>,
+  record: QueueRecord,
+  players: readonly ReviewedPlayer[],
+  score: string,
+  handicap: ResolvedHandicap,
+  tournamentWeightCode: 'X' | 'C'
+): number {
+  const userId = Number(claims.sub);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    throw new Error('The RTO session has no valid user ID. Sign in again.');
+  }
+  const response = UrlFetchApp.fetch(`${RTO_API}/Match/save`, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: `Bearer ${token}` },
+    payload: JSON.stringify({
+      CourtID: record.courtId,
+      MatchDate: record.matchDate,
+      P1: players[0]?.id,
+      P2: record.matchType === 'D' ? players[1]?.id : 0,
+      P3: players[record.matchType === 'D' ? 2 : 1]?.id,
+      P4: record.matchType === 'D' ? players[3]?.id : 0,
+      Score: score,
+      HcapDifference: handicap.difference,
+      HL: handicap.type,
+      SC: record.tournament ? tournamentWeightCode : 'S',
+      Description: '',
+      UserId: userId,
+      Source: 'rto_web_site',
+      ResultMode: 'NONE',
+      SpecialResultAwardedTeam: null,
+      SpecialResultIntendedSets: null,
+      SpecialResultGamesPerSet: null,
+      DuplicateConfirmed: false
+    }),
+    muteHttpExceptions: true
+  });
+  const status = response.getResponseCode();
+  const bodyText = response.getContentText();
+  let body: unknown;
+  try {
+    body = bodyText ? (JSON.parse(bodyText) as unknown) : undefined;
+  } catch {
+    throw new RtoMatchSaveError(
+      `RTO returned HTTP ${status} without a readable match ID. Reconcile in RTO.`,
+      false,
+      status
+    );
+  }
+  if (status < 200 || status >= 300) {
+    const errorBody = isRecord(body) ? body : {};
+    const detail = readString(errorBody, 'message', 'Message', 'error', 'Error');
+    const rejected = status >= 400 && status < 500 && status !== 408;
+    const message = rejected
+      ? detail || `RTO rejected the match with HTTP ${status}.`
+      : `RTO returned HTTP ${status}; the submission outcome is unknown. Reconcile in RTO.`;
+    throw new RtoMatchSaveError(message, rejected, status);
+  }
+  const responseBody = isRecord(body) ? body : {};
+  const matchId = Number(
+    isRecord(body) ? (responseBody.matchID ?? responseBody.matchId ?? responseBody.MatchID) : body
+  );
+  if (!Number.isInteger(matchId) || matchId <= 0) {
+    throw new RtoMatchSaveError('RTO did not return a match ID. Reconcile in RTO.', false);
+  }
+  return matchId;
+}
+
+function safeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 500) : 'RTO submission failed.';
+}
+
+function numericUserId(claims: Record<string, unknown>): number | undefined {
+  const userId = Number(claims.sub);
+  return Number.isInteger(userId) && userId > 0 ? userId : undefined;
+}
+
+function auditLog(event: string, fields: Record<string, unknown>, severity: 'info' | 'warning' = 'info'): void {
+  const entry = JSON.stringify({ event, ...fields });
+  if (severity === 'warning') {
+    console.warn(entry);
+  } else {
+    console.log(entry);
+  }
+}
+
+function loginAuditContext(payload: unknown): Record<string, string> {
+  if (!isRecord(payload)) {
+    return {};
+  }
+  const context = isRecord(payload.clientContext) ? payload.clientContext : {};
+  const field = (value: unknown, maximumLength: number): string | undefined =>
+    typeof value === 'string' && value.trim() ? value.trim().slice(0, maximumLength) : undefined;
+  return Object.fromEntries(
+    [
+      ['identifier', field(payload.identifier, 100)],
+      ['userAgent', field(context.userAgent, 300)],
+      ['language', field(context.language, 30)],
+      ['timeZone', field(context.timeZone, 100)]
+    ].filter((entry): entry is [string, string] => Boolean(entry[1]))
+  );
+}
+
+function authorize(token: string): Record<string, unknown> {
   const claims = decodeJwtPayload(token);
+  validateSessionClaims(claims, Date.now());
+  enforceAdminRateLimit(
+    'token-validation',
+    TOKEN_VALIDATION_RATE_LIMIT,
+    'Score Review is busy. Try again in a minute.'
+  );
+  const validation = rtoRequest('/User/validate-token', { token }, token);
+  requireValidatedToken(validation);
+  return claims;
+}
+
+function enforceAdminRateLimit(key: string, limit: number, message: string): void {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = `admin:${key}`;
+  const count = Number(cache.get(cacheKey) ?? 0);
+  if (count >= limit) {
+    throw new Error(message);
+  }
+  cache.put(cacheKey, String(count + 1), RATE_LIMIT_SECONDS);
+}
+
+export function requireValidatedToken(validation: Record<string, unknown>): string {
+  const token = readString(validation, 'token', 'Token');
+  if (!token) {
+    throw new Error('The RTO session is invalid. Sign in again.');
+  }
+  return token;
+}
+
+export function validateSessionClaims(claims: Record<string, unknown>, now: number): void {
+  const expiresAt = Number(claims.exp) * 1_000;
+  const validFrom = Number(claims.nbf) * 1_000;
+  if (!Number.isFinite(expiresAt) || expiresAt <= now || !Number.isFinite(validFrom) || validFrom > now) {
+    throw new Error('The RTO session has expired. Sign in again.');
+  }
   const serializedRoles = claims.rtoRole;
   const roles = Array.isArray(serializedRoles) ? serializedRoles : [serializedRoles];
   const isBostonMatchAdmin = roles.some(serializedRole => {
@@ -200,7 +540,8 @@ function authorize(token: string): void {
       return (
         role.Role === 'ADM-MATCH' &&
         role.OrgID === BOSTON_ORGANIZATION_ID &&
-        (!role.EndDate || new Date(role.EndDate).getTime() >= Date.now())
+        (!role.StartDate || new Date(role.StartDate).getTime() <= now) &&
+        (!role.EndDate || new Date(role.EndDate).getTime() >= now)
       );
     } catch {
       return false;
@@ -212,6 +553,14 @@ function authorize(token: string): void {
 }
 
 function rtoRequest(path: string, payload: object, token?: string): Record<string, unknown> {
+  const body = rtoPost(path, payload, token);
+  if (!isRecord(body)) {
+    throw new Error('RTO returned an unreadable response.');
+  }
+  return body;
+}
+
+function rtoPost(path: string, payload: object, token?: string): unknown {
   const response = UrlFetchApp.fetch(`${RTO_API}${path}`, {
     method: 'post',
     contentType: 'application/json',
@@ -219,11 +568,7 @@ function rtoRequest(path: string, payload: object, token?: string): Record<strin
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   });
-  const body = parseRtoResponse(response);
-  if (!isRecord(body)) {
-    throw new Error('RTO returned an unreadable response.');
-  }
-  return body;
+  return parseRtoResponse(response);
 }
 
 function rtoGet(path: string, token: string): unknown {
@@ -260,7 +605,7 @@ function parseRtoResponse(response: GoogleAppsScript.URL_Fetch.HTTPResponse): un
     if (status === 429) {
       throw new Error('Too many sign-in attempts. Try again later.');
     }
-    throw new Error(readString(errorBody, 'message', 'Message') || 'RTO sign-in could not be completed.');
+    throw new Error('The RTO request could not be completed.');
   }
   return body;
 }
@@ -414,17 +759,31 @@ function validateLoginRequest(payload: unknown): LoginRequest {
   };
 }
 
-function validateDemoSubmission(payload: unknown): DemoSubmissionRequest {
-  if (!isRecord(payload) || !Array.isArray(payload.playerIds)) {
-    throw new Error('The demo submission is incomplete.');
+function validateReviewedSubmission(payload: unknown): ReviewedSubmissionRequest {
+  if (!isRecord(payload) || !Array.isArray(payload.players)) {
+    throw new Error('The reviewed submission is incomplete.');
   }
   const score = requiredString(payload.score, 'Score');
   if (score.length > 100 || !isValidScore(score)) {
     throw new Error('Enter game scores like 6-2,6-1 or 10-8.');
   }
+  const players = payload.players.map(player => {
+    if (!isRecord(player)) {
+      throw new Error('Choose every RTO player.');
+    }
+    const id = Number(player.id);
+    const handicap = Number(player.handicap);
+    if (!Number.isInteger(id) || id <= 0 || !Number.isFinite(handicap)) {
+      throw new Error('Choose every RTO player.');
+    }
+    return { id, handicap };
+  });
+  if (new Set(players.map(player => player.id)).size !== players.length) {
+    throw new Error('Choose a different RTO player for each position.');
+  }
   return {
     submissionId: requiredString(payload.submissionId, 'Submission ID'),
-    playerIds: payload.playerIds.map(playerId => requiredString(playerId, 'Player ID')),
+    players,
     score
   };
 }

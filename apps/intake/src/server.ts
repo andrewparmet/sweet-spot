@@ -29,6 +29,8 @@ const MAX_TEXT_LENGTH = 100;
 const MAX_SCORE_LENGTH = 100;
 const MAX_HANDICAP_LENGTH = 60;
 const THROTTLE_SECONDS = 3;
+const GLOBAL_THROTTLE_LIMIT = 30;
+const GLOBAL_THROTTLE_SECONDS = 60;
 
 export function doGet(): GoogleAppsScript.HTML.HtmlOutput {
   return HtmlService.createHtmlOutputFromFile('Index')
@@ -163,7 +165,7 @@ export function undoSubmission(payload: unknown): UndoSubmissionResponse {
     const updatedAtColumn = QUEUE_HEADERS.indexOf('Updated At') + 1;
     const statusCell = sheet.getRange(location.rowNumber, statusColumn);
     const status = String(statusCell.getValue());
-    if (status === 'Submitted') {
+    if (status === 'Submitted' || status === 'Ready') {
       throw new Error('That score has already been submitted to RTO and can no longer be undone here.');
     }
     if (status !== 'Withdrawn') {
@@ -304,6 +306,12 @@ function enforceThrottle(clientId: string): void {
   if (cache.get(cacheKey)) {
     throw new Error('Please wait a moment before submitting another score.');
   }
+  const globalCacheKey = 'submit:global';
+  const globalCount = Number(cache.get(globalCacheKey) ?? 0);
+  if (globalCount >= GLOBAL_THROTTLE_LIMIT) {
+    throw new Error('Score entry is busy. Try again in a minute.');
+  }
+  cache.put(globalCacheKey, String(globalCount + 1), GLOBAL_THROTTLE_SECONDS);
   cache.put(cacheKey, '1', THROTTLE_SECONDS);
 }
 
@@ -332,6 +340,7 @@ function ensureWeekSheet(
     sheet.setName(tabName);
   }
 
+  sheet.getRange(1, 1, sheet.getMaxRows(), QUEUE_HEADERS.length).setNumberFormat('@');
   if (sheet.getLastRow() === 0) {
     sheet.appendRow([...QUEUE_HEADERS]);
     sheet.setFrozenRows(1);

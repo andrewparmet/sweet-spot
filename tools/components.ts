@@ -42,6 +42,15 @@ export const appsScriptDeployments = {
     deploymentIdFile: path.join(repositoryRoot, 'apps', 'admin', '.deployment.staging-id'),
     configFile: path.join(repositoryRoot, 'apps', 'admin', 'staging.json')
   },
+  'admin-production': {
+    ...appsScriptComponents.admin,
+    environment: 'production',
+    name: 'admin-production',
+    title: 'Sweet Spot Admin',
+    projectFile: path.join(repositoryRoot, 'apps', 'admin', '.clasp.production.json'),
+    deploymentIdFile: path.join(repositoryRoot, 'apps', 'admin', '.deployment.production-id'),
+    configFile: path.join(repositoryRoot, 'apps', 'admin', 'production.json')
+  },
   'intake-production': {
     ...appsScriptComponents.intake,
     environment: 'production',

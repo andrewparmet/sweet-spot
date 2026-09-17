@@ -6,25 +6,36 @@ const outputDirectory = path.join(repositoryRoot, 'apps', 'pages', 'dist');
 
 await rm(outputDirectory, { recursive: true, force: true });
 await Promise.all([
+  mkdir(path.join(outputDirectory, 'admin'), { recursive: true }),
   mkdir(path.join(outputDirectory, 'staging'), { recursive: true }),
   mkdir(path.join(outputDirectory, 'staging', 'admin'), { recursive: true })
 ]);
 
-const [intakeDeploymentId, adminDeploymentId] = await Promise.all([
-  deploymentId('intake-staging'),
-  deploymentId('admin-staging')
-]);
+const [productionIntakeDeploymentId, productionAdminDeploymentId, stagingIntakeDeploymentId, stagingAdminDeploymentId] =
+  await Promise.all([
+    deploymentId('intake-production'),
+    deploymentId('admin-production'),
+    deploymentId('intake-staging'),
+    deploymentId('admin-staging')
+  ]);
 
 await Promise.all([
   writeFile(path.join(outputDirectory, '.nojekyll'), ''),
-  writeFile(path.join(outputDirectory, 'index.html'), redirectPage('./staging/')),
+  writeFile(
+    path.join(outputDirectory, 'index.html'),
+    framePage('Match Entry', webAppUrl(productionIntakeDeploymentId))
+  ),
+  writeFile(
+    path.join(outputDirectory, 'admin', 'index.html'),
+    framePage('Score Review', webAppUrl(productionAdminDeploymentId))
+  ),
   writeFile(
     path.join(outputDirectory, 'staging', 'index.html'),
-    framePage('Match Entry', webAppUrl(intakeDeploymentId))
+    framePage('Match Entry', webAppUrl(stagingIntakeDeploymentId))
   ),
   writeFile(
     path.join(outputDirectory, 'staging', 'admin', 'index.html'),
-    framePage('Score Review', webAppUrl(adminDeploymentId))
+    framePage('Score Review', webAppUrl(stagingAdminDeploymentId))
   )
 ]);
 
@@ -46,21 +57,6 @@ async function deploymentId(name: keyof typeof appsScriptDeployments): Promise<s
 
 function webAppUrl(deploymentIdValue: string): string {
   return `https://script.google.com/macros/s/${deploymentIdValue}/exec`;
-}
-
-function redirectPage(target: string): string {
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta http-equiv="refresh" content="0; url=${target}" />
-    <title>Sweet Spot</title>
-    <script>window.location.replace(${JSON.stringify(target)});</script>
-  </head>
-  <body><a href="${target}">Continue</a></body>
-</html>
-`;
 }
 
 function framePage(title: string, source: string): string {

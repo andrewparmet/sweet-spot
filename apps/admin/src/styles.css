@@ -30,6 +30,23 @@ body {
   background: radial-gradient(circle at top right, rgba(242, 181, 68, 0.18), transparent 28rem), var(--canvas);
 }
 
+.fatal-error {
+  position: fixed;
+  z-index: 1000;
+  right: 1rem;
+  bottom: 1rem;
+  left: 1rem;
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--error);
+  border-radius: 0.75rem;
+  color: var(--error);
+  background: var(--error-soft);
+  box-shadow: 0 0.5rem 1.5rem rgba(23, 53, 47, 0.16);
+  font-weight: 700;
+}
+
 button,
 input,
 select {
@@ -62,14 +79,46 @@ select {
   gap: 0.9rem;
 }
 
-.ball {
+.ball-mark {
+  position: relative;
+  flex: 0 0 auto;
   width: 3rem;
   height: 3rem;
-  flex: 0 0 auto;
-  border: 1px solid rgba(70, 75, 20, 0.18);
-  border-radius: 50%;
-  background: #d8df45;
-  box-shadow: inset -0.35rem -0.35rem 0.6rem rgba(87, 94, 21, 0.15);
+  overflow: hidden;
+  border: 1px solid rgba(23, 53, 47, 0.18);
+  border-radius: 49% 52% 48% 51%;
+  background:
+    radial-gradient(circle at 0.06rem 0.06rem, rgba(255, 255, 210, 0.24) 0 0.045rem, transparent 0.055rem) 0 0 / 0.28rem
+      0.28rem,
+    radial-gradient(circle at 35% 28%, rgba(255, 255, 210, 0.36), transparent 35%),
+    radial-gradient(circle at 65% 72%, rgba(79, 105, 8, 0.2), transparent 48%),
+    #d2eb32;
+  box-shadow: inset -0.2rem -0.25rem 0.35rem rgba(72, 96, 8, 0.2);
+}
+
+.ball-mark svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.seam-ridge,
+.seam-stitches {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.seam-ridge {
+  stroke: rgba(91, 116, 12, 0.42);
+  stroke-width: 1.4;
+  filter: drop-shadow(0.8px 0.5px rgba(244, 255, 128, 0.68));
+}
+
+.seam-stitches {
+  stroke: rgba(86, 108, 10, 0.75);
+  stroke-width: 1.65;
+  filter: drop-shadow(0.6px 0.6px rgba(244, 255, 128, 0.74));
 }
 
 .login-copy {
@@ -186,6 +235,11 @@ h2 {
   background: var(--accent-soft);
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.environment:empty,
+.eyebrow:empty {
+  display: none;
 }
 
 .inbox {
@@ -359,6 +413,11 @@ h2 {
   font-weight: 750;
 }
 
+.details a {
+  color: var(--accent);
+  text-underline-offset: 0.15em;
+}
+
 .details .error-label,
 .details .error-copy {
   color: var(--error);
@@ -498,7 +557,24 @@ dialog::backdrop {
 
 .player-matches {
   display: grid;
+  gap: 1rem;
+}
+
+.player-side {
+  display: grid;
   gap: 0.8rem;
+}
+
+.player-side + .player-side {
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.player-side-title {
+  margin: 0;
+  color: var(--ink);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1rem;
 }
 
 .player-match {
@@ -593,6 +669,16 @@ dialog::backdrop {
 
 [hidden] {
   display: none !important;
+}
+
+.frame-error {
+  display: grid;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 2rem;
+  color: var(--error);
+  background: var(--surface);
+  text-align: center;
 }
 
 @media (max-width: 36rem) {

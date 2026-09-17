@@ -10,17 +10,45 @@
     </style>
   </head>
   <body>
+    <div id="fatal-error" class="fatal-error" role="alert" hidden></div>
+    <script>
+      window.addEventListener('error', function (event) {
+        var message = event.error && event.error.message ? event.error.message : event.message;
+        var errorBox = document.getElementById('fatal-error');
+        if (errorBox && message) {
+          errorBox.textContent = 'Score Review could not start: ' + message;
+          errorBox.hidden = false;
+        }
+      });
+      window.addEventListener('unhandledrejection', function (event) {
+        var message =
+          event.reason && event.reason.message ? event.reason.message : String(event.reason || 'Unknown error');
+        var errorBox = document.getElementById('fatal-error');
+        if (errorBox) {
+          errorBox.textContent = 'Score Review could not continue: ' + message;
+          errorBox.hidden = false;
+        }
+      });
+    </script>
     <main id="login-shell" class="login-shell">
       <section class="login-card" aria-labelledby="login-title">
         <div class="login-heading">
-          <div class="ball" aria-hidden="true"></div>
+          <div class="ball-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" focusable="false">
+              <path class="seam-ridge" d="M9-2C17 11 17 37 9 50M39-2C31 11 31 37 39 50" />
+              <path
+                class="seam-stitches"
+                d="M9.5 4.2l4-2M11.5 10.8l4-2M12.7 18l4-2M13 25l4-2M12.7 32l4-2M11.5 39.2l4-2M9.5 45.8l4-2M34.5 2.2l4 2M32.5 8.8l4 2M31.3 16l4 2M31 23l4 2M31.3 30l4 2M32.5 37.2l4 2M34.5 43.8l4 2"
+              />
+            </svg>
+          </div>
           <div>
-            <p class="eyebrow">Staging</p>
+            <p class="eyebrow">__SWEET_SPOT_ENVIRONMENT__</p>
             <h1 id="login-title">Score Review</h1>
           </div>
         </div>
         <p class="login-copy">Sign in with an RTO match administrator account.</p>
-        <form id="login-form" novalidate>
+        <form id="login-form" novalidate onsubmit="return false;">
           <label>
             <span>RTO number or email</span>
             <input id="identifier" name="identifier" autocomplete="username" required />
@@ -41,7 +69,7 @@
           <h1>Score Review</h1>
         </div>
         <div class="header-actions">
-          <div class="environment">Staging</div>
+          <div class="environment">__SWEET_SPOT_ENVIRONMENT__</div>
           <button id="logout-button" class="text-button" type="button">Sign out</button>
         </div>
       </header>

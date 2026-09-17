@@ -11,9 +11,9 @@ tested, and published through the root scripts.
 - `packages/shared`: request, response, and queue types shared by every component
 - `tools`: TypeScript build and publishing commands
 
-The staging admin application requires an RTO account with the Boston `ADM-MATCH` role. It validates the RTO session before
-reading the queue, keeps the token in browser `sessionStorage`, and searches the RTO player directory when a score is reviewed.
-The final submission action still writes fake RTO match IDs while that integration is under development.
+The admin application requires an RTO account with the Boston `ADM-MATCH` role. It validates the RTO session before reading
+the queue, keeps the token in browser `sessionStorage`, and searches the RTO player directory when a score is reviewed.
+Production submits approved matches to RTO; staging writes fake RTO match IDs.
 
 ## Commands
 
@@ -46,6 +46,7 @@ npx clasp login
 npm run deploy:intake:staging
 npm run deploy:intake:production
 npm run deploy:admin:staging
+npm run deploy:admin:production
 ```
 
 Each deploy command reconciles its environment: it creates a missing Apps Script project, runs all checks, pushes generated
@@ -62,8 +63,8 @@ The intake setup function creates the private queue spreadsheet and logs its URL
 `2026-W38`. The review application will scan every weekly tab and present one inbox containing every row that is neither
 `Submitted` nor `Withdrawn`.
 
-The staging admin deployment reads its queue spreadsheet ID from `apps/admin/staging.json`. Apps Script project IDs and stable
-deployment IDs are checked in beside each component. Generated build artifacts remain ignored.
+Each admin deployment reads its queue spreadsheet ID and RTO submission mode from its environment JSON file. Apps Script
+project IDs and stable deployment IDs are checked in beside each component. Generated build artifacts remain ignored.
 
 ## GitHub Pages
 
@@ -72,7 +73,8 @@ deployment IDs and generates these routes:
 
 - `/sweet-spot/staging/`, which hosts match entry
 - `/sweet-spot/staging/admin/`
-- `/sweet-spot/`, which redirects to staging until production routes are introduced
+- `/sweet-spot/`, which hosts production match entry
+- `/sweet-spot/admin/`, which hosts production score review
 
 Pushing a relevant configuration or deployment ID change to `main` redeploys Pages. A missing deployment ID fails the Pages
 build instead of publishing a partial route tree.

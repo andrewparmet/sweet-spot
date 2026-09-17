@@ -65,16 +65,16 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/api/submissions/demo') {
       const payload = JSON.parse(await readBody(request)) as {
         readonly submissionId?: string;
-        readonly playerIds?: string[];
+        readonly players?: { readonly id?: string }[];
         readonly score?: string;
       };
-      if (!payload.submissionId || !payload.playerIds?.length || !payload.score) {
+      if (!payload.submissionId || !payload.players?.length || !payload.score) {
         throw new Error('The demo submission is incomplete.');
       }
       const now = new Date();
       await demoSubmitLocalRecord(
         payload.submissionId,
-        payload.playerIds,
+        payload.players.map(player => String(player.id ?? '')),
         normalizeScore(payload.score),
         now.toISOString(),
         `demo-${now.getTime()}`

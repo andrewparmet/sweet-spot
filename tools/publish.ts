@@ -12,7 +12,9 @@ if (!componentName) {
 const component = getAppsScriptDeployment(componentName);
 run('npm', ['run', 'check'], { cwd: repositoryRoot });
 ensureProject(component);
-run('npx', ['tsx', 'tools/build.ts', component.environment], { cwd: repositoryRoot });
+run('npx', ['tsx', 'tools/build.ts', component.environment, component.name.replace(/-.+$/, '')], {
+  cwd: repositoryRoot
+});
 
 const projectArguments = ['clasp', '--project', component.projectFile];
 run('npx', [...projectArguments, 'push', '--force'], { cwd: component.directory });

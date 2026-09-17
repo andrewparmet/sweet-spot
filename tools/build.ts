@@ -5,9 +5,13 @@ import { build } from 'esbuild';
 import { appsScriptComponents, getAppsScriptDeployment, repositoryRoot } from './components.ts';
 
 const SERVER_GLOBAL = 'SweetSpotIntakeServer';
-const intakeEnvironment = process.argv[2] ?? 'staging';
-if (intakeEnvironment !== 'staging' && intakeEnvironment !== 'production') {
+const buildEnvironment = process.argv[2] ?? 'staging';
+const selectedComponent = process.argv[3];
+if (buildEnvironment !== 'staging' && buildEnvironment !== 'production') {
   throw new Error('Build environment must be staging or production.');
+}
+if (selectedComponent && selectedComponent !== 'admin' && selectedComponent !== 'intake') {
+  throw new Error('Build component must be admin or intake.');
 }
 
 async function buildAdmin(): Promise<void> {
@@ -16,13 +20,31 @@ async function buildAdmin(): Promise<void> {
   await rm(component.distDirectory, { recursive: true, force: true });
   await mkdir(component.distDirectory, { recursive: true });
 
-  const deployment = getAppsScriptDeployment('admin-staging');
+  const deployment = getAppsScriptDeployment(`admin-${buildEnvironment}`);
   if (!deployment.configFile) {
     throw new Error(`No configuration file is defined for ${deployment.name}.`);
   }
-  const config = JSON.parse(await readFile(deployment.configFile, 'utf8')) as { readonly queueSpreadsheetId?: unknown };
+  const config = JSON.parse(await readFile(deployment.configFile, 'utf8')) as {
+    readonly liveRtoSubmission?: unknown;
+    readonly queueSpreadsheetId?: unknown;
+    readonly tournamentWeightCode?: unknown;
+  };
   if (typeof config.queueSpreadsheetId !== 'string' || !config.queueSpreadsheetId) {
     throw new Error(`No queueSpreadsheetId is defined in ${deployment.configFile}.`);
+  }
+  if (config.liveRtoSubmission !== (buildEnvironment === 'production')) {
+    throw new Error(`${deployment.configFile} has the wrong liveRtoSubmission value for ${buildEnvironment}.`);
+  }
+  if (config.tournamentWeightCode !== 'X' && config.tournamentWeightCode !== 'C') {
+    throw new Error(`${deployment.configFile} must define tournamentWeightCode as X or C.`);
+  }
+  if (buildEnvironment === 'production') {
+    const stagingConfig = JSON.parse(
+      await readFile(getAppsScriptDeployment('admin-staging').configFile as string, 'utf8')
+    ) as { readonly queueSpreadsheetId?: unknown };
+    if (config.queueSpreadsheetId === stagingConfig.queueSpreadsheetId) {
+      throw new Error('Production and staging must use different queue spreadsheets.');
+    }
   }
 
   const serverResult = await build({
@@ -36,6 +58,8 @@ async function buildAdmin(): Promise<void> {
   });
   const serverBundle = outputText(serverResult.outputFiles, '.js');
   const spreadsheetId = JSON.stringify(config.queueSpreadsheetId);
+  const liveRtoSubmission = JSON.stringify(config.liveRtoSubmission);
+  const tournamentWeightCode = JSON.stringify(config.tournamentWeightCode);
   const appsScriptWrappers = `
 function doGet() {
   return SweetSpotAdminServer.doGet();
@@ -57,8 +81,14 @@ function loadPlayerDirectory(token, matchType, playerNames) {
   return SweetSpotAdminServer.loadPlayerDirectory(token, matchType, playerNames);
 }
 
-function demoSubmitMatch(token, payload) {
-  return SweetSpotAdminServer.demoSubmitMatch(token, payload, ${spreadsheetId});
+function submitReviewedMatch(token, payload) {
+  return SweetSpotAdminServer.submitReviewedMatch(
+    token,
+    payload,
+    ${spreadsheetId},
+    ${liveRtoSubmission},
+    ${tournamentWeightCode}
+  );
 }
 `;
   await writeFile(path.join(component.distDirectory, 'Code.gs'), `${serverBundle}${appsScriptWrappers}`);
@@ -78,6 +108,7 @@ function demoSubmitMatch(token, payload) {
     readFile(path.join(component.directory, 'appsscript.json'), 'utf8')
   ]);
   const html = htmlTemplate
+    .replaceAll('__SWEET_SPOT_ENVIRONMENT__', buildEnvironment === 'staging' ? 'Staging' : '')
     .replace('/*__SWEET_SPOT_STYLES__*/', () => stylesheet.replaceAll('</style', '<\\/style'))
     .replace('/*__SWEET_SPOT_SCRIPT__*/', () => clientBundle);
   if (html.includes('__SWEET_SPOT_')) {
@@ -110,17 +141,17 @@ async function buildIntake(): Promise<void> {
   const serverBundle = outputText(serverResult.outputFiles, '.js');
   const appsScriptWrappers = `
 function doGet() {
-  ${SERVER_GLOBAL}.ensureSetup('${intakeEnvironment}');
+  ${SERVER_GLOBAL}.ensureSetup('${buildEnvironment}');
   return ${SERVER_GLOBAL}.doGet();
 }
 
 function submitMatch(payload) {
-  ${SERVER_GLOBAL}.ensureSetup('${intakeEnvironment}');
+  ${SERVER_GLOBAL}.ensureSetup('${buildEnvironment}');
   return ${SERVER_GLOBAL}.submitMatch(payload);
 }
 
 function undoSubmission(payload) {
-  ${SERVER_GLOBAL}.ensureSetup('${intakeEnvironment}');
+  ${SERVER_GLOBAL}.ensureSetup('${buildEnvironment}');
   return ${SERVER_GLOBAL}.undoSubmission(payload);
 }
 
@@ -175,6 +206,11 @@ function outputText(
   return output.text;
 }
 
-await Promise.all([buildAdmin(), buildIntake()]);
-console.log(`Built admin at ${path.relative(repositoryRoot, appsScriptComponents.admin.distDirectory)}`);
-console.log(`Built intake at ${path.relative(repositoryRoot, appsScriptComponents.intake.distDirectory)}`);
+if (!selectedComponent || selectedComponent === 'admin') {
+  await buildAdmin();
+  console.log(`Built admin at ${path.relative(repositoryRoot, appsScriptComponents.admin.distDirectory)}`);
+}
+if (!selectedComponent || selectedComponent === 'intake') {
+  await buildIntake();
+  console.log(`Built intake at ${path.relative(repositoryRoot, appsScriptComponents.intake.distDirectory)}`);
+}

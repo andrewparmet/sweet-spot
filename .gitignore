@@ -2,3 +2,5 @@
 node_modules/
 apps/*/dist/
 local-data/
+.clasp.json
+.clasprc.json

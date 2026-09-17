@@ -1,6 +1,6 @@
 import type { QueueRecord } from '../../../packages/shared/src/queue.ts';
 import { isValidScore } from '../../../packages/shared/src/match.ts';
-import { normalizedPlayerName, reasonablePlayerMatches } from './player-search.ts';
+import { normalizedPlayerName, playerMatchScore, reasonablePlayerMatches } from './player-search.ts';
 
 interface AdminQueueItem {
   readonly tabName: string;
@@ -12,6 +12,11 @@ interface DirectoryPlayer {
   readonly name: string;
   readonly handicap: number;
   readonly isBoston: boolean;
+}
+
+interface ReviewedPlayer {
+  readonly id: string;
+  readonly handicap: number;
 }
 
 type QueueView = 'review' | 'history';
@@ -49,6 +54,8 @@ let activeView: QueueView = 'review';
 let selectedItem: AdminQueueItem | undefined;
 let submitting = false;
 const directoryLoads = new Map<QueueRecord['matchType'], Promise<DirectoryPlayer[]>>();
+
+enforceTrustedFrame();
 
 interface GoogleScriptRunner {
   withSuccessHandler(handler: (response: unknown) => void): GoogleScriptRunner;
@@ -91,7 +98,7 @@ async function callLocalServer<T>(functionName: string, args: readonly unknown[]
     loadAdminQueue: { method: 'GET', path: '/api/queue' },
     loadBostonDirectory: { method: 'GET', path: '/api/boston-directory' },
     loadPlayerDirectory: { method: 'GET', path: '/api/directory' },
-    demoSubmitMatch: { method: 'POST', path: '/api/submissions/demo' }
+    submitReviewedMatch: { method: 'POST', path: '/api/submissions/demo' }
   };
   const route = routes[functionName];
   if (!route) {
@@ -126,13 +133,36 @@ function requiredElement<T extends HTMLElement>(id: string): T {
   return element as T;
 }
 
+function enforceTrustedFrame(): void {
+  if (window.top === window.self) {
+    return;
+  }
+  const trustedOrigin = 'https://andrewparmet.github.io';
+  const ancestorOrigins = Array.from(window.location.ancestorOrigins ?? []);
+  const referrerOrigin = (() => {
+    try {
+      return document.referrer ? new URL(document.referrer).origin : '';
+    } catch {
+      return '';
+    }
+  })();
+  if (ancestorOrigins.includes(trustedOrigin) || referrerOrigin === trustedOrigin) {
+    return;
+  }
+  document.body.replaceChildren(textElement('main', 'frame-error', 'Open Score Review from the Sweet Spot site.'));
+  throw new Error('Score Review was embedded by an untrusted site.');
+}
+
 function teamName(record: QueueRecord, side: 1 | 2): string {
   const players = side === 1 ? [record.side1Player1, record.side1Player2] : [record.side2Player1, record.side2Player2];
   return players.filter(Boolean).join(' / ');
 }
 
-function playerNames(record: QueueRecord): string[] {
-  return [record.side1Player1, record.side1Player2, record.side2Player1, record.side2Player2].filter(Boolean);
+function playerSides(record: QueueRecord): string[][] {
+  return [
+    [record.side1Player1, record.side1Player2].filter(Boolean),
+    [record.side2Player1, record.side2Player2].filter(Boolean)
+  ];
 }
 
 function textElement(tagName: keyof HTMLElementTagNameMap, className: string, text: string): HTMLElement {
@@ -158,6 +188,17 @@ function formatMatchDate(matchDate: string): string {
   }).format(new Date(year, month - 1, day));
 }
 
+function formatEntryTimestamp(submittedAt: string): string | undefined {
+  const timestamp = new Date(submittedAt);
+  if (Number.isNaN(timestamp.getTime())) {
+    return undefined;
+  }
+  return `Entered ${new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(timestamp)}`;
+}
+
 function isHistory(record: QueueRecord): boolean {
   return record.status === 'Submitted' || record.status === 'Withdrawn';
 }
@@ -171,10 +212,12 @@ function matchCard(item: AdminQueueItem): HTMLElement {
   top.className = 'match-topline';
   const metadata = document.createElement('div');
   metadata.className = 'metadata';
-  metadata.append(
-    textElement('span', statusClass(record.status), record.status),
-    textElement('span', 'date', formatMatchDate(record.matchDate))
-  );
+  const date = textElement('span', 'date', formatMatchDate(record.matchDate));
+  const entryTimestamp = formatEntryTimestamp(record.submittedAt);
+  if (entryTimestamp) {
+    date.title = entryTimestamp;
+  }
+  metadata.append(textElement('span', statusClass(record.status), record.status), date);
   top.append(metadata, textElement('span', 'match-type', record.matchType === 'D' ? 'Doubles' : 'Singles'));
 
   const matchup = document.createElement('div');
@@ -200,14 +243,26 @@ function matchCard(item: AdminQueueItem): HTMLElement {
   );
   details.append(textElement('dt', '', 'Type'), textElement('dd', '', record.tournament ? 'Tournament' : 'Friendly'));
   if (record.rtoMatchId) {
-    details.append(textElement('dt', '', 'RTO match'), textElement('dd', '', record.rtoMatchId));
+    const matchValue = textElement('dd', '', '');
+    const numericMatchId = Number(record.rtoMatchId);
+    if (Number.isSafeInteger(numericMatchId) && numericMatchId > 0 && String(numericMatchId) === record.rtoMatchId) {
+      const matchLink = document.createElement('a');
+      matchLink.href = 'https://www.realtennisonline.com/v2/matches/details/' + record.rtoMatchId;
+      matchLink.target = '_blank';
+      matchLink.rel = 'noopener noreferrer';
+      matchLink.textContent = record.rtoMatchId;
+      matchValue.append(matchLink);
+    } else {
+      matchValue.textContent = record.rtoMatchId;
+    }
+    details.append(textElement('dt', '', 'RTO match'), matchValue);
   }
   if (record.lastError) {
     details.append(textElement('dt', 'error-label', 'Error'), textElement('dd', 'error-copy', record.lastError));
   }
 
   article.append(top, matchup, details);
-  if (!isHistory(record)) {
+  if (!isHistory(record) && record.status !== 'Ready') {
     const footer = document.createElement('div');
     footer.className = 'card-footer';
     const action = document.createElement('button');
@@ -348,7 +403,7 @@ async function expandPlayerSearch(matchType: QueueRecord['matchType'], playerNam
   return players;
 }
 
-function mergePlayers(...directories: readonly DirectoryPlayer[][]): DirectoryPlayer[] {
+function mergePlayers(...directories: readonly (readonly DirectoryPlayer[])[]): DirectoryPlayer[] {
   const playersById = new Map<string, DirectoryPlayer>();
   for (const directory of directories) {
     for (const player of directory) {
@@ -361,23 +416,40 @@ function mergePlayers(...directories: readonly DirectoryPlayer[][]): DirectoryPl
 function renderPlayerOptions(
   select: HTMLSelectElement,
   originalName: string,
-  directory: readonly DirectoryPlayer[]
+  bostonDirectory: readonly DirectoryPlayer[],
+  expandedDirectory: readonly DirectoryPlayer[] = []
 ): void {
   select.replaceChildren();
-  const ordered = reasonablePlayerMatches(originalName, directory);
-  const bestMatchId = ordered[0]?.id;
+  const directory = mergePlayers(bostonDirectory, expandedDirectory);
+  const bostonMatches = reasonablePlayerMatches(
+    originalName,
+    directory.filter(player => player.isBoston)
+  );
+  const widerMatches = reasonablePlayerMatches(
+    originalName,
+    directory.filter(player => !player.isBoston)
+  );
+  const ordered = [...bostonMatches, ...widerMatches];
+  const bestMatchId = ordered.reduce<DirectoryPlayer | undefined>((best, player) => {
+    if (!best || playerMatchScore(originalName, player.name) < playerMatchScore(originalName, best.name)) {
+      return player;
+    }
+    return best;
+  }, undefined)?.id;
   if (!bestMatchId) {
     const option = document.createElement('option');
     option.value = '';
-    option.textContent = 'No Boston match. Expand or search manually.';
+    option.textContent = expandedDirectory.length
+      ? 'No directory match. Search manually.'
+      : 'No Boston match. Expand or search manually.';
     option.selected = true;
     option.disabled = true;
     select.append(option);
     return;
   }
   for (const [groupLabel, players] of [
-    ['Boston players', ordered.filter(player => player.isBoston)],
-    ['Other players', ordered.filter(player => !player.isBoston)]
+    ['Boston players', bostonMatches],
+    ['Wider directory', widerMatches]
   ] as const) {
     if (players.length === 0) {
       continue;
@@ -387,6 +459,7 @@ function renderPlayerOptions(
     for (const player of players) {
       const option = document.createElement('option');
       option.value = player.id;
+      option.dataset.handicap = String(player.handicap);
       option.textContent = `${player.name} (${player.handicap.toFixed(1)})`;
       option.selected = player.id === bestMatchId;
       group.append(option);
@@ -444,11 +517,11 @@ function playerMatchField(
   searchButton.type = 'submit';
   searchButton.textContent = 'Search';
   manualSearch.append(manualInput, searchButton);
-  let fieldPlayers = [...bostonPlayers];
+  let expandedFieldPlayers: DirectoryPlayer[] = [];
   const addExpandedPlayers = async (query: string): Promise<void> => {
     const expandedPlayers = await expandPlayerSearch(matchType, query);
-    fieldPlayers = mergePlayers(expandedPlayers, fieldPlayers);
-    renderPlayerOptions(select, query, fieldPlayers);
+    expandedFieldPlayers = mergePlayers(expandedPlayers, expandedFieldPlayers);
+    renderPlayerOptions(select, query, bostonPlayers, expandedFieldPlayers);
     updateSubmitAvailability();
   };
   expandButton.addEventListener('click', async () => {
@@ -511,12 +584,22 @@ async function openReview(item: AdminQueueItem): Promise<void> {
   reviewDialog.showModal();
   try {
     const { record } = item;
-    const names = playerNames(record);
+    const sides = playerSides(record);
     const bostonPlayers = await loadBostonPlayers(record.matchType);
     dialogMatch.textContent = `${teamName(record, 1)} vs ${teamName(record, 2)}`;
     reviewScore.value = record.scoreOriginal;
+    let playerIndex = 0;
     playerMatches.replaceChildren(
-      ...names.map((name, index) => playerMatchField(name, record.matchType, bostonPlayers, index))
+      ...sides.map((names, sideIndex) => {
+        const group = document.createElement('section');
+        group.className = 'player-side';
+        group.append(textElement('h3', 'player-side-title', `Side ${sideIndex + 1}`));
+        for (const name of names) {
+          group.append(playerMatchField(name, record.matchType, bostonPlayers, playerIndex));
+          playerIndex += 1;
+        }
+        return group;
+      })
     );
     updateSubmitAvailability();
     dialogLoading.hidden = true;
@@ -536,12 +619,15 @@ function closeReview(): void {
   }
 }
 
-async function demoSubmit(): Promise<void> {
+async function submitReviewedMatch(): Promise<void> {
   if (!selectedItem) {
     return;
   }
-  const playerIds = Array.from(playerMatches.querySelectorAll<HTMLSelectElement>('select'), select => select.value);
-  if (playerIds.some(playerId => !playerId)) {
+  const players: ReviewedPlayer[] = Array.from(playerMatches.querySelectorAll<HTMLSelectElement>('select'), select => ({
+    id: select.value,
+    handicap: Number(select.selectedOptions[0]?.dataset.handicap)
+  }));
+  if (players.some(player => !player.id || !Number.isFinite(player.handicap))) {
     dialogError.textContent = 'Match every entered player before submitting.';
     dialogError.hidden = false;
     return;
@@ -565,9 +651,9 @@ async function demoSubmit(): Promise<void> {
       throw new Error('Sign in again.');
     }
     const body = await callServer<{ readonly submitted?: boolean; readonly message?: string }>(
-      'demoSubmitMatch',
+      'submitReviewedMatch',
       token,
-      { submissionId: selectedItem.record.submissionId, playerIds, score }
+      { submissionId: selectedItem.record.submissionId, players, score }
     );
     if (!body.submitted) {
       throw new Error(body.message || 'The submission failed.');
@@ -588,7 +674,7 @@ async function demoSubmit(): Promise<void> {
 }
 
 function isAuthenticationError(error: unknown): boolean {
-  return error instanceof Error && /sign in|administrator|session|authentication/i.test(error.message);
+  return error instanceof Error && /sign[- ]?in|administrator|session|authentication/i.test(error.message);
 }
 
 function showLogin(): void {
@@ -629,7 +715,15 @@ async function login(event: SubmitEvent): Promise<void> {
   loginButton.disabled = true;
   loginButton.textContent = 'Signing in…';
   try {
-    const response = await callServer<{ readonly token?: string }>('adminLogin', { identifier, password });
+    const response = await callServer<{ readonly token?: string }>('adminLogin', {
+      identifier,
+      password,
+      clientContext: {
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      }
+    });
     if (!response.token) {
       throw new Error('RTO sign-in did not return a session.');
     }
@@ -658,7 +752,7 @@ historyTab.addEventListener('click', () => {
 });
 closeDialogButton.addEventListener('click', closeReview);
 cancelDialogButton.addEventListener('click', closeReview);
-demoSubmitButton.addEventListener('click', () => void demoSubmit());
+demoSubmitButton.addEventListener('click', () => void submitReviewedMatch());
 reviewScore.addEventListener('input', updateSubmitAvailability);
 loginForm.addEventListener('submit', event => void login(event));
 logoutButton.addEventListener('click', signOut);
