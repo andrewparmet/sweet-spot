@@ -71,6 +71,7 @@ export async function withdrawLocalRecord(submissionId: string, requestId: strin
 export async function demoSubmitLocalRecord(
   submissionId: string,
   playerIds: readonly string[],
+  scoreNormalized: string,
   updatedAt: string,
   rtoMatchId: string
 ): Promise<void> {
@@ -91,6 +92,7 @@ export async function demoSubmitLocalRecord(
       ...record,
       status: 'Submitted',
       rtoPlayerIds: playerIds.join(','),
+      scoreNormalized,
       rtoMatchId,
       lastError: '',
       updatedAt

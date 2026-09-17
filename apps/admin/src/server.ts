@@ -1,4 +1,5 @@
 import { QUEUE_HEADERS, type QueueRecord } from '../../../packages/shared/src/queue.ts';
+import { isValidScore, normalizeScore } from '../../../packages/shared/src/match.ts';
 
 const RTO_API = 'https://www.realtennisonline.com/v2/api';
 const BOSTON_ORGANIZATION_ID = 36;
@@ -13,6 +14,7 @@ interface LoginRequest {
 interface DemoSubmissionRequest {
   readonly submissionId: string;
   readonly playerIds: string[];
+  readonly score: string;
 }
 
 interface RtoRole {
@@ -173,6 +175,7 @@ export function demoSubmitMatch(token: unknown, payload: unknown, spreadsheetId:
       const timestamp = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
       setCell(sheet, rowNumber, 'Status', 'Submitted');
       setCell(sheet, rowNumber, 'RTO Player IDs', request.playerIds.join(','));
+      setCell(sheet, rowNumber, 'Score Normalized', normalizeScore(request.score));
       setCell(sheet, rowNumber, 'RTO Match ID', `demo-${Date.now()}`);
       setCell(sheet, rowNumber, 'Updated At', timestamp);
       return { submitted: true };
@@ -415,9 +418,14 @@ function validateDemoSubmission(payload: unknown): DemoSubmissionRequest {
   if (!isRecord(payload) || !Array.isArray(payload.playerIds)) {
     throw new Error('The demo submission is incomplete.');
   }
+  const score = requiredString(payload.score, 'Score');
+  if (score.length > 100 || !isValidScore(score)) {
+    throw new Error('Enter game scores like 6-2,6-1 or 10-8.');
+  }
   return {
     submissionId: requiredString(payload.submissionId, 'Submission ID'),
-    playerIds: payload.playerIds.map(playerId => requiredString(playerId, 'Player ID'))
+    playerIds: payload.playerIds.map(playerId => requiredString(playerId, 'Player ID')),
+    score
   };
 }
 

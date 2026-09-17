@@ -73,13 +73,16 @@
         </div>
         <div id="dialog-content" hidden>
           <div id="dialog-match" class="dialog-match"></div>
+          <label class="score-override" for="review-score">
+            <span>Score</span>
+            <input id="review-score" type="text" inputmode="numeric" autocomplete="off" maxlength="100" />
+          </label>
           <div id="player-matches" class="player-matches"></div>
-          <p class="demo-note">Demo mode writes a fake RTO match ID to the local queue.</p>
         </div>
         <div id="dialog-error" class="dialog-error" role="alert" hidden></div>
         <div id="dialog-actions" class="dialog-actions" hidden>
           <button id="cancel-dialog" class="secondary-button" type="button">Cancel</button>
-          <button id="demo-submit" class="primary-button" type="button">Demo submit</button>
+          <button id="demo-submit" class="primary-button" type="button">Submit</button>
         </div>
       </div>
     </dialog>

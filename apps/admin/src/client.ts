@@ -1,4 +1,5 @@
 import type { QueueRecord } from '../../../packages/shared/src/queue.ts';
+import { isValidScore } from '../../../packages/shared/src/match.ts';
 import { normalizedPlayerName, reasonablePlayerMatches } from './player-search.ts';
 
 interface AdminQueueItem {
@@ -38,6 +39,7 @@ const dialogLoading = requiredElement<HTMLElement>('dialog-loading');
 const loadingLabel = requiredElement<HTMLElement>('loading-label');
 const dialogContent = requiredElement<HTMLElement>('dialog-content');
 const dialogMatch = requiredElement<HTMLElement>('dialog-match');
+const reviewScore = requiredElement<HTMLInputElement>('review-score');
 const playerMatches = requiredElement<HTMLElement>('player-matches');
 const dialogError = requiredElement<HTMLElement>('dialog-error');
 const dialogActions = requiredElement<HTMLElement>('dialog-actions');
@@ -395,7 +397,8 @@ function renderPlayerOptions(
 
 function updateSubmitAvailability(): void {
   const selects = [...playerMatches.querySelectorAll<HTMLSelectElement>('select')];
-  demoSubmitButton.disabled = submitting || selects.length === 0 || selects.some(select => !select.value);
+  demoSubmitButton.disabled =
+    submitting || !isValidScore(reviewScore.value) || selects.length === 0 || selects.some(select => !select.value);
 }
 
 function playerMatchField(
@@ -510,7 +513,8 @@ async function openReview(item: AdminQueueItem): Promise<void> {
     const { record } = item;
     const names = playerNames(record);
     const bostonPlayers = await loadBostonPlayers(record.matchType);
-    dialogMatch.textContent = `${teamName(record, 1)} vs ${teamName(record, 2)} · ${record.scoreOriginal}`;
+    dialogMatch.textContent = `${teamName(record, 1)} vs ${teamName(record, 2)}`;
+    reviewScore.value = record.scoreOriginal;
     playerMatches.replaceChildren(
       ...names.map((name, index) => playerMatchField(name, record.matchType, bostonPlayers, index))
     );
@@ -542,7 +546,15 @@ async function demoSubmit(): Promise<void> {
     dialogError.hidden = false;
     return;
   }
+  const score = reviewScore.value.trim();
+  if (!isValidScore(score)) {
+    dialogError.textContent = 'Enter game scores like 6-2,6-1 or 10-8.';
+    dialogError.hidden = false;
+    reviewScore.focus();
+    return;
+  }
   submitting = true;
+  demoSubmitButton.textContent = 'Submitting…';
   updateSubmitAvailability();
   cancelDialogButton.disabled = true;
   closeDialogButton.disabled = true;
@@ -555,19 +567,20 @@ async function demoSubmit(): Promise<void> {
     const body = await callServer<{ readonly submitted?: boolean; readonly message?: string }>(
       'demoSubmitMatch',
       token,
-      { submissionId: selectedItem.record.submissionId, playerIds }
+      { submissionId: selectedItem.record.submissionId, playerIds, score }
     );
     if (!body.submitted) {
-      throw new Error(body.message || 'The demo submission failed.');
+      throw new Error(body.message || 'The submission failed.');
     }
     reviewDialog.close();
     selectedItem = undefined;
     await loadQueue();
   } catch (error) {
-    dialogError.textContent = error instanceof Error ? error.message : 'The demo submission failed.';
+    dialogError.textContent = error instanceof Error ? error.message : 'The submission failed.';
     dialogError.hidden = false;
   } finally {
     submitting = false;
+    demoSubmitButton.textContent = 'Submit';
     updateSubmitAvailability();
     cancelDialogButton.disabled = false;
     closeDialogButton.disabled = false;
@@ -646,6 +659,7 @@ historyTab.addEventListener('click', () => {
 closeDialogButton.addEventListener('click', closeReview);
 cancelDialogButton.addEventListener('click', closeReview);
 demoSubmitButton.addEventListener('click', () => void demoSubmit());
+reviewScore.addEventListener('input', updateSubmitAvailability);
 loginForm.addEventListener('submit', event => void login(event));
 logoutButton.addEventListener('click', signOut);
 reviewDialog.addEventListener('cancel', event => {

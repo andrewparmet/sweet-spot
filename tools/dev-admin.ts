@@ -3,6 +3,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { appsScriptComponents } from './components.ts';
 import { demoSubmitLocalRecord, readLocalTabs } from './local-queue.ts';
+import { normalizeScore } from '../packages/shared/src/match.ts';
 
 const PORT = 4174;
 const MAX_REQUEST_BYTES = 20_000;
@@ -65,12 +66,19 @@ const server = http.createServer(async (request, response) => {
       const payload = JSON.parse(await readBody(request)) as {
         readonly submissionId?: string;
         readonly playerIds?: string[];
+        readonly score?: string;
       };
-      if (!payload.submissionId || !payload.playerIds?.length) {
+      if (!payload.submissionId || !payload.playerIds?.length || !payload.score) {
         throw new Error('The demo submission is incomplete.');
       }
       const now = new Date();
-      await demoSubmitLocalRecord(payload.submissionId, payload.playerIds, now.toISOString(), `demo-${now.getTime()}`);
+      await demoSubmitLocalRecord(
+        payload.submissionId,
+        payload.playerIds,
+        normalizeScore(payload.score),
+        now.toISOString(),
+        `demo-${now.getTime()}`
+      );
       send(response, 200, 'application/json', JSON.stringify({ submitted: true }));
       return;
     }

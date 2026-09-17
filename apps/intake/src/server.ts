@@ -3,6 +3,7 @@ import {
   isValidOdds,
   isValidScore,
   MATCH_TYPES,
+  normalizeScore,
   type HandicapEntryType,
   type MatchSubmissionResponse,
   type MatchType,
@@ -10,6 +11,7 @@ import {
   type UndoSubmissionResponse,
   type ValidatedMatchSubmission
 } from '../../../packages/shared/src/match.ts';
+export { normalizeScore } from '../../../packages/shared/src/match.ts';
 import {
   INITIAL_QUEUE_STATUS,
   QUEUE_HEADERS,
@@ -241,15 +243,6 @@ export function validateUndoSubmission(payload: unknown): UndoSubmissionRequest 
     submissionId: requiredText(payload.submissionId, 'Submission ID', 64),
     requestId: requiredText(payload.requestId, 'Request ID', 64)
   };
-}
-
-export function normalizeScore(score: string): string {
-  return score
-    .trim()
-    .replace(/[–—]/g, '-')
-    .replace(/\s*,\s*/g, ' ')
-    .replace(/(\d)\s*-\s*(\d)/g, '$1/$2')
-    .replace(/\s+/g, ' ');
 }
 
 export function escapeForSheet(value: string): string {

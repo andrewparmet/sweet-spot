@@ -18,6 +18,15 @@ export function isValidScore(value: string): boolean {
   return SCORE_PATTERN.test(value.trim());
 }
 
+export function normalizeScore(score: string): string {
+  return score
+    .trim()
+    .replace(/[–—]/g, '-')
+    .replace(/\s*,\s*/g, ' ')
+    .replace(/(\d)\s*-\s*(\d)/g, '$1/$2')
+    .replace(/\s+/g, ' ');
+}
+
 export interface MatchSubmissionRequest {
   readonly requestId: string;
   readonly clientId: string;
