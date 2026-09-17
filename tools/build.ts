@@ -49,8 +49,8 @@ function loadAdminQueue(token) {
   return SweetSpotAdminServer.loadAdminQueue(token, ${spreadsheetId});
 }
 
-function loadPlayerDirectory(token) {
-  return SweetSpotAdminServer.loadPlayerDirectory(token);
+function loadPlayerDirectory(token, matchType, playerNames) {
+  return SweetSpotAdminServer.loadPlayerDirectory(token, matchType, playerNames);
 }
 
 function demoSubmitMatch(token, payload) {

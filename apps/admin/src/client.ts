@@ -13,7 +13,7 @@ interface DirectoryPlayer {
 
 type QueueView = 'review' | 'history';
 
-const DIRECTORY_CACHE_KEY = 'sweet-spot-demo-directory-v1';
+const DIRECTORY_CACHE_PREFIX = 'sweet-spot-rto-directory-v1';
 const SESSION_TOKEN_KEY = 'sweet-spot-rto-token';
 const loginShell = requiredElement<HTMLElement>('login-shell');
 const adminShell = requiredElement<HTMLElement>('admin-shell');
@@ -260,25 +260,25 @@ async function loadQueue(): Promise<void> {
   }
 }
 
-function cachedDirectory(): DirectoryPlayer[] | undefined {
-  const serialized = sessionStorage.getItem(DIRECTORY_CACHE_KEY);
+function directoryCacheKey(record: QueueRecord): string {
+  return `${DIRECTORY_CACHE_PREFIX}:${record.matchType}:${playerNames(record).map(normalizedName).join('|')}`;
+}
+
+function cachedDirectory(record: QueueRecord): DirectoryPlayer[] | undefined {
+  const serialized = sessionStorage.getItem(directoryCacheKey(record));
   if (!serialized) {
     return undefined;
   }
   try {
     return JSON.parse(serialized) as DirectoryPlayer[];
   } catch {
-    sessionStorage.removeItem(DIRECTORY_CACHE_KEY);
+    sessionStorage.removeItem(directoryCacheKey(record));
     return undefined;
   }
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise(resolve => window.setTimeout(resolve, milliseconds));
-}
-
-async function loadDirectory(): Promise<DirectoryPlayer[]> {
-  const cached = cachedDirectory();
+async function loadDirectory(record: QueueRecord): Promise<DirectoryPlayer[]> {
+  const cached = cachedDirectory(record);
   if (cached) {
     return cached;
   }
@@ -286,14 +286,16 @@ async function loadDirectory(): Promise<DirectoryPlayer[]> {
   if (!token) {
     throw new Error('Sign in again.');
   }
-  const [body] = await Promise.all([
-    callServer<{ readonly players?: DirectoryPlayer[]; readonly message?: string }>('loadPlayerDirectory', token),
-    delay(900)
-  ]);
+  const body = await callServer<{ readonly players?: DirectoryPlayer[]; readonly message?: string }>(
+    'loadPlayerDirectory',
+    token,
+    record.matchType,
+    playerNames(record)
+  );
   if (!body.players) {
     throw new Error(body.message || 'The player directory could not be loaded.');
   }
-  sessionStorage.setItem(DIRECTORY_CACHE_KEY, JSON.stringify(body.players));
+  sessionStorage.setItem(directoryCacheKey(record), JSON.stringify(body.players));
   return body.players;
 }
 
@@ -352,8 +354,8 @@ async function openReview(item: AdminQueueItem): Promise<void> {
   loadingLabel.textContent = 'Loading player directory…';
   reviewDialog.showModal();
   try {
-    const directory = await loadDirectory();
     const { record } = item;
+    const directory = await loadDirectory(record);
     dialogMatch.textContent = `${teamName(record, 1)} vs ${teamName(record, 2)} · ${record.scoreOriginal}`;
     playerMatches.replaceChildren(...playerNames(record).map(name => playerMatchField(name, directory)));
     dialogLoading.hidden = true;
@@ -424,7 +426,12 @@ function showAdmin(): void {
 
 function signOut(): void {
   sessionStorage.removeItem(SESSION_TOKEN_KEY);
-  sessionStorage.removeItem(DIRECTORY_CACHE_KEY);
+  for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+    const key = sessionStorage.key(index);
+    if (key?.startsWith(DIRECTORY_CACHE_PREFIX)) {
+      sessionStorage.removeItem(key);
+    }
+  }
   passwordInput.value = '';
   allItems = [];
   queueList.replaceChildren();

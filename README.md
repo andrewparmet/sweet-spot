@@ -12,8 +12,8 @@ tested, and published through the root scripts.
 - `tools`: TypeScript build and publishing commands
 
 The staging admin application requires an RTO account with the Boston `ADM-MATCH` role. It validates the RTO session before
-reading the queue, keeps the token in browser `sessionStorage`, and retains the Peanuts directory and fake RTO match IDs for
-the demo-submission workflow.
+reading the queue, keeps the token in browser `sessionStorage`, and searches the RTO player directory when a score is reviewed.
+The final submission action still writes fake RTO match IDs while that integration is under development.
 
 ## Commands
 

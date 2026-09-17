@@ -4,20 +4,6 @@ const RTO_API = 'https://www.realtennisonline.com/v2/api';
 const BOSTON_ORGANIZATION_ID = 36;
 const BOSTON_TIME_ZONE = 'America/New_York';
 const WEEK_SHEET_NAME_PATTERN = /^\d{4}-W\d{2}$/;
-const DIRECTORY = [
-  { id: '10001', name: 'Charlie Brown', handicap: 42.1 },
-  { id: '10002', name: 'Lucy van Pelt', handicap: 48.4 },
-  { id: '10003', name: 'Snoopy', handicap: 31.7 },
-  { id: '10004', name: 'Woodstock', handicap: 54.2 },
-  { id: '10005', name: 'Schroeder', handicap: 39.8 },
-  { id: '10006', name: 'Franklin Armstrong', handicap: 44.5 },
-  { id: '10007', name: 'Peppermint Patty', handicap: 36.3 },
-  { id: '10008', name: 'Marcie', handicap: 46.9 },
-  { id: '10009', name: 'Linus van Pelt', handicap: 43.6 },
-  { id: '10010', name: 'Sally Brown', handicap: 51.2 },
-  { id: '10011', name: 'Pig-Pen', handicap: 49.7 },
-  { id: '10012', name: 'Violet Gray', handicap: 45.1 }
-];
 
 interface LoginRequest {
   readonly identifier: string;
@@ -33,6 +19,12 @@ interface RtoRole {
   readonly Role?: string;
   readonly OrgID?: number;
   readonly EndDate?: string;
+}
+
+interface DirectoryPlayer {
+  readonly id: string;
+  readonly name: string;
+  readonly handicap: number;
 }
 
 export function doGet(): GoogleAppsScript.HTML.HtmlOutput {
@@ -67,9 +59,35 @@ export function loadAdminQueue(token: unknown, spreadsheetId: string): { readonl
   return { items };
 }
 
-export function loadPlayerDirectory(token: unknown): { readonly players: typeof DIRECTORY } {
-  authorize(requiredString(token, 'RTO session'));
-  return { players: DIRECTORY };
+export function loadPlayerDirectory(
+  token: unknown,
+  matchType: unknown,
+  playerNames: unknown
+): { readonly players: DirectoryPlayer[] } {
+  const sessionToken = requiredString(token, 'RTO session');
+  authorize(sessionToken);
+  const type = requiredMatchType(matchType);
+  if (!Array.isArray(playerNames) || playerNames.length < 2 || playerNames.length > 4) {
+    throw new Error('The player search is incomplete.');
+  }
+  const names = playerNames.map(name => requiredString(name, 'Player name'));
+  const playersById = new Map<string, DirectoryPlayer>();
+  for (const name of names) {
+    const response = rtoGet(
+      `/Person/list/search/SD/${type}?text=${encodeURIComponent(name)}&initial=false&mustHavePrimaryOrg=false`,
+      sessionToken
+    );
+    if (!Array.isArray(response)) {
+      throw new Error('RTO returned an unreadable player directory.');
+    }
+    for (const candidate of response) {
+      const player = directoryPlayer(candidate);
+      if (player) {
+        playersById.set(player.id, player);
+      }
+    }
+  }
+  return { players: [...playersById.values()] };
 }
 
 export function demoSubmitMatch(token: unknown, payload: unknown, spreadsheetId: string): { readonly submitted: true } {
@@ -135,12 +153,29 @@ function rtoRequest(path: string, payload: object, token?: string): Record<strin
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   });
+  const body = parseRtoResponse(response);
+  if (!isRecord(body)) {
+    throw new Error('RTO returned an unreadable response.');
+  }
+  return body;
+}
+
+function rtoGet(path: string, token: string): unknown {
+  const response = UrlFetchApp.fetch(`${RTO_API}${path}`, {
+    method: 'get',
+    headers: { Authorization: `Bearer ${token}` },
+    muteHttpExceptions: true
+  });
+  return parseRtoResponse(response);
+}
+
+function parseRtoResponse(response: GoogleAppsScript.URL_Fetch.HTTPResponse): unknown {
   const status = response.getResponseCode();
   const bodyText = response.getContentText();
-  let body: Record<string, unknown> = {};
+  let body: unknown = {};
   if (bodyText) {
     try {
-      body = JSON.parse(bodyText) as Record<string, unknown>;
+      body = JSON.parse(bodyText) as unknown;
     } catch {
       if (status >= 200 && status < 300) {
         throw new Error('RTO returned an unreadable response.');
@@ -148,7 +183,8 @@ function rtoRequest(path: string, payload: object, token?: string): Record<strin
     }
   }
   if (status < 200 || status >= 300) {
-    const code = readString(body, 'code', 'Code');
+    const errorBody = isRecord(body) ? body : {};
+    const code = readString(errorBody, 'code', 'Code');
     if (code === 'INVALID_CREDENTIALS' || status === 401) {
       throw new Error('The RTO sign-in details were not recognized.');
     }
@@ -158,9 +194,24 @@ function rtoRequest(path: string, payload: object, token?: string): Record<strin
     if (status === 429) {
       throw new Error('Too many sign-in attempts. Try again later.');
     }
-    throw new Error(readString(body, 'message', 'Message') || 'RTO sign-in could not be completed.');
+    throw new Error(readString(errorBody, 'message', 'Message') || 'RTO sign-in could not be completed.');
   }
   return body;
+}
+
+function directoryPlayer(value: unknown): DirectoryPlayer | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const id = value.playerID ?? value.playerId ?? value.PlayerID;
+  const name =
+    readString(value, 'nameFirstLastTag', 'NameFirstLastTag', 'nameFirstLast', 'NameFirstLast') ||
+    [readString(value, 'nameFirst', 'NameFirst'), readString(value, 'nameLast', 'NameLast')].filter(Boolean).join(' ');
+  const handicap = Number(value.hcap ?? value.Hcap);
+  if ((typeof id !== 'string' && typeof id !== 'number') || !name || !Number.isFinite(handicap)) {
+    return undefined;
+  }
+  return { id: String(id), name, handicap };
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
@@ -255,6 +306,13 @@ function requiredString(value: unknown, label: string): string {
     throw new Error(`${label} is required.`);
   }
   return value.trim();
+}
+
+function requiredMatchType(value: unknown): 'S' | 'D' {
+  if (value === 'S' || value === 'D') {
+    return value;
+  }
+  throw new Error('Choose singles or doubles.');
 }
 
 function readString(value: Record<string, unknown>, ...keys: string[]): string {
