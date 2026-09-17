@@ -367,7 +367,7 @@ function renderPlayerOptions(
   if (!bestMatchId) {
     const option = document.createElement('option');
     option.value = '';
-    option.textContent = 'No Boston match. Use manual search.';
+    option.textContent = 'No Boston match. Expand or search manually.';
     option.selected = true;
     option.disabled = true;
     select.append(option);
@@ -412,11 +412,19 @@ function playerMatchField(
   const selectId = `player-match-${index}`;
   label.htmlFor = selectId;
   label.textContent = originalName;
+  const searchActions = document.createElement('div');
+  searchActions.className = 'player-search-actions';
   const expandButton = document.createElement('button');
   expandButton.className = 'expand-search';
   expandButton.type = 'button';
-  expandButton.textContent = 'Manual search';
-  heading.append(label, expandButton);
+  expandButton.textContent = 'Expand search';
+  const manualButton = document.createElement('button');
+  manualButton.className = 'expand-search';
+  manualButton.type = 'button';
+  manualButton.textContent = 'Manual search';
+  manualButton.setAttribute('aria-expanded', 'false');
+  searchActions.append(expandButton, manualButton);
+  heading.append(label, searchActions);
   const select = document.createElement('select');
   select.id = selectId;
   renderPlayerOptions(select, originalName, bostonPlayers);
@@ -434,9 +442,29 @@ function playerMatchField(
   searchButton.textContent = 'Search';
   manualSearch.append(manualInput, searchButton);
   let fieldPlayers = [...bostonPlayers];
-  expandButton.addEventListener('click', () => {
+  const addExpandedPlayers = async (query: string): Promise<void> => {
+    const expandedPlayers = await expandPlayerSearch(matchType, query);
+    fieldPlayers = mergePlayers(expandedPlayers, fieldPlayers);
+    renderPlayerOptions(select, query, fieldPlayers);
+    updateSubmitAvailability();
+  };
+  expandButton.addEventListener('click', async () => {
+    expandButton.disabled = true;
+    expandButton.textContent = 'Searching…';
+    dialogError.hidden = true;
+    try {
+      await addExpandedPlayers(originalName);
+      expandButton.textContent = 'Expanded';
+    } catch (error) {
+      expandButton.disabled = false;
+      expandButton.textContent = 'Expand search';
+      dialogError.textContent = error instanceof Error ? error.message : 'The wider directory could not be searched.';
+      dialogError.hidden = false;
+    }
+  });
+  manualButton.addEventListener('click', () => {
     manualSearch.hidden = !manualSearch.hidden;
-    expandButton.setAttribute('aria-expanded', String(!manualSearch.hidden));
+    manualButton.setAttribute('aria-expanded', String(!manualSearch.hidden));
     if (!manualSearch.hidden) {
       manualInput.focus();
       manualInput.select();
@@ -456,10 +484,7 @@ function playerMatchField(
     searchButton.textContent = 'Searching…';
     dialogError.hidden = true;
     try {
-      const expandedPlayers = await expandPlayerSearch(matchType, query);
-      fieldPlayers = mergePlayers(expandedPlayers, fieldPlayers);
-      renderPlayerOptions(select, query, fieldPlayers);
-      updateSubmitAvailability();
+      await addExpandedPlayers(query);
     } catch (error) {
       dialogError.textContent = error instanceof Error ? error.message : 'The wider directory could not be searched.';
       dialogError.hidden = false;

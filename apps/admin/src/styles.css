@@ -485,6 +485,11 @@ dialog::backdrop {
   font-weight: 750;
 }
 
+.player-search-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
 .expand-search {
   padding: 0;
   border: 0;
