@@ -284,11 +284,7 @@ input[type='text']:focus {
 }
 
 .submit-dock {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  padding: 0.2rem 0 max(0.15rem, env(safe-area-inset-bottom));
-  background: linear-gradient(to bottom, rgba(255, 253, 248, 0), var(--surface) 35%);
+  padding-top: 0.2rem;
 }
 
 button {

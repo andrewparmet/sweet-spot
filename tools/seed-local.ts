@@ -69,6 +69,7 @@ const week38: QueueRecord[] = [
     requestId: 'sample-request-003',
     submittedAt: '2026-09-17T08:05:00-04:00',
     matchDate: '2026-09-17',
+    handicapOriginal: '',
     updatedAt: '2026-09-17T08:05:00-04:00'
   }),
   sample({

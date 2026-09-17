@@ -48,6 +48,22 @@ describe('validateSubmission', () => {
     expect(result.handicap).toBe('-15/15');
   });
 
+  it('accepts a level match without handicap input', () => {
+    const result = validateSubmission({
+      requestId: 'request-level',
+      clientId: 'client-1',
+      matchType: 'S',
+      side1Player1: 'Joe Cool',
+      side2Player1: 'J Cool',
+      score: '6-4,6-3',
+      handicapType: 'odds',
+      handicap: '',
+      tournament: false
+    });
+
+    expect(result.handicap).toBe('');
+  });
+
   it('requires both doubles partners', () => {
     expect(() =>
       validateSubmission({

@@ -237,6 +237,10 @@ function showUndoSuccess(): void {
 }
 
 function validateHandicap(): boolean {
+  if (!handicapInput.value.trim()) {
+    handicapInput.setCustomValidity('');
+    return true;
+  }
   const difference = getSelectedValue<HandicapEntryType>('handicapType') === 'difference';
   const valid = difference ? /^[+-]?\d+(?:\.\d+)?$/.test(handicapInput.value.trim()) : isValidOdds(handicapInput.value);
   const message = difference
@@ -267,7 +271,14 @@ form.addEventListener('input', event => {
 form.addEventListener('submit', event => {
   event.preventDefault();
   formMessage.hidden = true;
-  if (!validateHandicap() || !form.reportValidity()) {
+  const validHandicap = validateHandicap();
+  if (!validHandicap || !form.checkValidity()) {
+    const invalidInput = form.querySelector<HTMLInputElement>('input:invalid');
+    formMessage.classList.remove('notice');
+    formMessage.textContent = invalidInput?.validationMessage || 'Complete the required match information.';
+    formMessage.hidden = false;
+    formMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    form.reportValidity();
     return;
   }
 

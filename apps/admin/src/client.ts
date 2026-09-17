@@ -104,11 +104,16 @@ function matchCard(item: AdminQueueItem): HTMLElement {
 
   const details = document.createElement('dl');
   details.className = 'details';
+  const handicapLabel = record.handicapOriginal
+    ? record.handicapEntryType === 'difference'
+      ? 'Difference'
+      : 'Odds'
+    : 'Handicap';
   details.append(
     textElement('dt', '', 'Score'),
     textElement('dd', '', record.scoreOriginal),
-    textElement('dt', '', record.handicapEntryType === 'difference' ? 'Difference' : 'Odds'),
-    textElement('dd', '', record.handicapOriginal)
+    textElement('dt', '', handicapLabel),
+    textElement('dd', '', record.handicapOriginal || 'Level')
   );
   details.append(textElement('dt', '', 'Type'), textElement('dd', '', record.tournament ? 'Tournament' : 'Friendly'));
   if (record.rtoMatchId) {

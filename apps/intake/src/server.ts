@@ -205,11 +205,11 @@ export function validateSubmission(payload: unknown): ValidatedMatchSubmission {
   }
 
   const score = requiredText(payload.score, 'Score', MAX_SCORE_LENGTH);
-  const handicap = requiredText(payload.handicap, 'Handicap played', MAX_HANDICAP_LENGTH);
-  if (handicapType === 'difference' && !/^[+-]?\d+(?:\.\d+)?$/.test(handicap)) {
+  const handicap = optionalText(payload.handicap, 'Handicap played', MAX_HANDICAP_LENGTH);
+  if (handicap && handicapType === 'difference' && !/^[+-]?\d+(?:\.\d+)?$/.test(handicap)) {
     throw new Error('Enter the handicap difference as a number.');
   }
-  if (handicapType === 'odds' && !isValidOdds(handicap)) {
+  if (handicap && handicapType === 'odds' && !isValidOdds(handicap)) {
     throw new Error('Enter two valid odds scores, such as -15/15 or -h15/15.');
   }
 
