@@ -49,6 +49,10 @@ function loadAdminQueue(token) {
   return SweetSpotAdminServer.loadAdminQueue(token, ${spreadsheetId});
 }
 
+function loadBostonDirectory(token, matchType) {
+  return SweetSpotAdminServer.loadBostonDirectory(token, matchType);
+}
+
 function loadPlayerDirectory(token, matchType, playerNames) {
   return SweetSpotAdminServer.loadPlayerDirectory(token, matchType, playerNames);
 }

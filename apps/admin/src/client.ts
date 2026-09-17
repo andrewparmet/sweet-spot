@@ -15,7 +15,7 @@ interface DirectoryPlayer {
 
 type QueueView = 'review' | 'history';
 
-const DIRECTORY_CACHE_PREFIX = 'sweet-spot-rto-directory-v6';
+const DIRECTORY_CACHE_PREFIX = 'sweet-spot-rto-directory-v7';
 const SESSION_TOKEN_KEY = 'sweet-spot-rto-token';
 const loginShell = requiredElement<HTMLElement>('login-shell');
 const adminShell = requiredElement<HTMLElement>('admin-shell');
@@ -45,6 +45,7 @@ const dialogActions = requiredElement<HTMLElement>('dialog-actions');
 let allItems: AdminQueueItem[] = [];
 let activeView: QueueView = 'review';
 let selectedItem: AdminQueueItem | undefined;
+const directoryLoads = new Map<QueueRecord['matchType'], Promise<DirectoryPlayer[]>>();
 
 interface GoogleScriptRunner {
   withSuccessHandler(handler: (response: unknown) => void): GoogleScriptRunner;
@@ -85,6 +86,7 @@ async function callLocalServer<T>(functionName: string, args: readonly unknown[]
   const routes: Record<string, { readonly method: string; readonly path: string }> = {
     adminLogin: { method: 'POST', path: '/api/login' },
     loadAdminQueue: { method: 'GET', path: '/api/queue' },
+    loadBostonDirectory: { method: 'GET', path: '/api/boston-directory' },
     loadPlayerDirectory: { method: 'GET', path: '/api/directory' },
     demoSubmitMatch: { method: 'POST', path: '/api/submissions/demo' }
   };
@@ -267,12 +269,15 @@ async function loadQueue(): Promise<void> {
   }
 }
 
-function directoryCacheKey(matchType: QueueRecord['matchType'], playerName: string): string {
-  return `${DIRECTORY_CACHE_PREFIX}:${matchType}:${normalizedPlayerName(playerName)}`;
+function bostonDirectoryCacheKey(matchType: QueueRecord['matchType']): string {
+  return `${DIRECTORY_CACHE_PREFIX}:boston:${matchType}`;
 }
 
-function cachedDirectory(matchType: QueueRecord['matchType'], playerName: string): DirectoryPlayer[] | undefined {
-  const key = directoryCacheKey(matchType, playerName);
+function expandedDirectoryCacheKey(matchType: QueueRecord['matchType'], playerName: string): string {
+  return `${DIRECTORY_CACHE_PREFIX}:expanded:${matchType}:${normalizedPlayerName(playerName)}`;
+}
+
+function cachedPlayers(key: string): DirectoryPlayer[] | undefined {
   const serialized = sessionStorage.getItem(key);
   if (!serialized) {
     return undefined;
@@ -285,43 +290,77 @@ function cachedDirectory(matchType: QueueRecord['matchType'], playerName: string
   }
 }
 
-async function loadDirectories(record: QueueRecord): Promise<DirectoryPlayer[][]> {
-  const names = playerNames(record);
-  const cachedResults = names.map(name => cachedDirectory(record.matchType, name));
-  const missingNames = names.filter((_, index) => !cachedResults[index]);
+async function loadBostonPlayers(matchType: QueueRecord['matchType']): Promise<DirectoryPlayer[]> {
+  const cacheKey = bostonDirectoryCacheKey(matchType);
+  const cached = cachedPlayers(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  const existingLoad = directoryLoads.get(matchType);
+  if (existingLoad) {
+    return existingLoad;
+  }
   const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
   if (!token) {
     throw new Error('Sign in again.');
   }
-  const loadedByName = new Map<string, DirectoryPlayer[]>();
-  if (missingNames.length > 0) {
+  const load = (async () => {
     const body = await callServer<{
-      readonly results?: { readonly query: string; readonly players: DirectoryPlayer[] }[];
+      readonly players?: DirectoryPlayer[];
       readonly message?: string;
-    }>('loadPlayerDirectory', token, record.matchType, missingNames);
-    if (!body.results) {
-      throw new Error(body.message || 'The player directory could not be loaded.');
+    }>('loadBostonDirectory', token, matchType);
+    if (!body.players) {
+      throw new Error(body.message || 'The Boston player directory could not be loaded.');
     }
-    for (const result of body.results) {
-      loadedByName.set(normalizedPlayerName(result.query), result.players);
-      sessionStorage.setItem(directoryCacheKey(record.matchType, result.query), JSON.stringify(result.players));
-    }
+    sessionStorage.setItem(cacheKey, JSON.stringify(body.players));
+    return body.players;
+  })();
+  directoryLoads.set(matchType, load);
+  try {
+    return await load;
+  } finally {
+    directoryLoads.delete(matchType);
   }
-  const directories = names.map(
-    (name, index) => cachedResults[index] || loadedByName.get(normalizedPlayerName(name)) || []
-  );
-  const unmatchedName = names.find((_, index) => directories[index]?.length === 0);
-  if (unmatchedName) {
-    throw new Error(`No RTO players matched ${unmatchedName}.`);
-  }
-  return directories;
 }
 
-function playerMatchField(originalName: string, directory: readonly DirectoryPlayer[]): HTMLElement {
-  const label = document.createElement('label');
-  label.className = 'player-match';
-  label.append(textElement('span', '', originalName));
-  const select = document.createElement('select');
+async function expandPlayerSearch(matchType: QueueRecord['matchType'], playerName: string): Promise<DirectoryPlayer[]> {
+  const cacheKey = expandedDirectoryCacheKey(matchType, playerName);
+  const cached = cachedPlayers(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
+  if (!token) {
+    throw new Error('Sign in again.');
+  }
+  const body = await callServer<{
+    readonly results?: { readonly query: string; readonly players: DirectoryPlayer[] }[];
+    readonly message?: string;
+  }>('loadPlayerDirectory', token, matchType, [playerName]);
+  const players = body.results?.[0]?.players;
+  if (!players) {
+    throw new Error(body.message || 'The wider player directory could not be searched.');
+  }
+  sessionStorage.setItem(cacheKey, JSON.stringify(players));
+  return players;
+}
+
+function mergePlayers(...directories: readonly DirectoryPlayer[][]): DirectoryPlayer[] {
+  const playersById = new Map<string, DirectoryPlayer>();
+  for (const directory of directories) {
+    for (const player of directory) {
+      playersById.set(player.id, player);
+    }
+  }
+  return [...playersById.values()];
+}
+
+function renderPlayerOptions(
+  select: HTMLSelectElement,
+  originalName: string,
+  directory: readonly DirectoryPlayer[]
+): void {
+  select.replaceChildren();
   const ordered = [...directory].sort((left, right) => {
     const scoreDifference = playerMatchScore(originalName, left.name) - playerMatchScore(originalName, right.name);
     return scoreDifference || left.name.localeCompare(right.name);
@@ -345,8 +384,47 @@ function playerMatchField(originalName: string, directory: readonly DirectoryPla
     }
     select.append(group);
   }
-  label.append(select);
-  return label;
+}
+
+function playerMatchField(
+  originalName: string,
+  matchType: QueueRecord['matchType'],
+  bostonPlayers: readonly DirectoryPlayer[],
+  index: number
+): HTMLElement {
+  const field = document.createElement('div');
+  field.className = 'player-match';
+  const heading = document.createElement('div');
+  heading.className = 'player-match-heading';
+  const label = document.createElement('label');
+  const selectId = `player-match-${index}`;
+  label.htmlFor = selectId;
+  label.textContent = originalName;
+  const expandButton = document.createElement('button');
+  expandButton.className = 'expand-search';
+  expandButton.type = 'button';
+  expandButton.textContent = 'Expand search';
+  heading.append(label, expandButton);
+  const select = document.createElement('select');
+  select.id = selectId;
+  renderPlayerOptions(select, originalName, bostonPlayers);
+  expandButton.addEventListener('click', async () => {
+    expandButton.disabled = true;
+    expandButton.textContent = 'Searching…';
+    dialogError.hidden = true;
+    try {
+      const expandedPlayers = await expandPlayerSearch(matchType, originalName);
+      renderPlayerOptions(select, originalName, mergePlayers(expandedPlayers, [...bostonPlayers]));
+      expandButton.textContent = 'Expanded';
+    } catch (error) {
+      expandButton.disabled = false;
+      expandButton.textContent = 'Expand search';
+      dialogError.textContent = error instanceof Error ? error.message : 'The wider directory could not be searched.';
+      dialogError.hidden = false;
+    }
+  });
+  field.append(heading, select);
+  return field;
 }
 
 async function openReview(item: AdminQueueItem): Promise<void> {
@@ -360,9 +438,11 @@ async function openReview(item: AdminQueueItem): Promise<void> {
   try {
     const { record } = item;
     const names = playerNames(record);
-    const directories = await loadDirectories(record);
+    const bostonPlayers = await loadBostonPlayers(record.matchType);
     dialogMatch.textContent = `${teamName(record, 1)} vs ${teamName(record, 2)} · ${record.scoreOriginal}`;
-    playerMatches.replaceChildren(...names.map((name, index) => playerMatchField(name, directories[index] || [])));
+    playerMatches.replaceChildren(
+      ...names.map((name, index) => playerMatchField(name, record.matchType, bostonPlayers, index))
+    );
     dialogLoading.hidden = true;
     dialogContent.hidden = false;
     dialogActions.hidden = false;
@@ -439,6 +519,7 @@ function signOut(): void {
   }
   passwordInput.value = '';
   allItems = [];
+  directoryLoads.clear();
   queueList.replaceChildren();
   showLogin();
 }
@@ -463,6 +544,7 @@ async function login(event: SubmitEvent): Promise<void> {
     sessionStorage.setItem(SESSION_TOKEN_KEY, response.token);
     passwordInput.value = '';
     showAdmin();
+    void Promise.allSettled([loadBostonPlayers('S'), loadBostonPlayers('D')]);
     await loadQueue();
   } catch (error) {
     loginError.textContent = error instanceof Error ? error.message : 'Sign-in failed.';
@@ -494,6 +576,7 @@ reviewDialog.addEventListener('cancel', event => {
 });
 if (sessionStorage.getItem(SESSION_TOKEN_KEY)) {
   showAdmin();
+  void Promise.allSettled([loadBostonPlayers('S'), loadBostonPlayers('D')]);
   void loadQueue();
 } else {
   showLogin();

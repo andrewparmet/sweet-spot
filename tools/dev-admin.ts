@@ -57,6 +57,10 @@ const server = http.createServer(async (request, response) => {
       send(response, 200, 'application/json', JSON.stringify({ players: directory }));
       return;
     }
+    if (request.method === 'GET' && request.url === '/api/boston-directory') {
+      send(response, 200, 'application/json', JSON.stringify({ players: directory.filter(player => player.isBoston) }));
+      return;
+    }
     if (request.method === 'POST' && request.url === '/api/submissions/demo') {
       const payload = JSON.parse(await readBody(request)) as {
         readonly submissionId?: string;

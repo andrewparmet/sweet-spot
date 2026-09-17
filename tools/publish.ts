@@ -65,7 +65,7 @@ async function verifyWebApp(deployment: AppsScriptDeployment, webAppUrl: string)
     try {
       const response = await fetch(webAppUrl, { redirect: 'follow' });
       const body = await response.text();
-      const expectedTitle = deployment.name.startsWith('admin-') ? 'Score review' : 'Match Entry';
+      const expectedTitle = deployment.name.startsWith('admin-') ? 'Score Review' : 'Match Entry';
       if (response.ok && body.includes(expectedTitle)) {
         return;
       }

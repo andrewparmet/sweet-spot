@@ -35,9 +35,35 @@ interface PlayerSearchResult {
 
 export function doGet(): GoogleAppsScript.HTML.HtmlOutput {
   return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Score review')
+    .setTitle('Score Review')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+}
+
+export function loadBostonDirectory(token: unknown, matchType: unknown): { readonly players: DirectoryPlayer[] } {
+  const sessionToken = requiredString(token, 'RTO session');
+  authorize(sessionToken);
+  const type = requiredMatchType(matchType);
+  const requests = 'abcdefghijklmnopqrstuvwxyz'.split('').map(letter => ({
+    url: `${RTO_API}/Person/list/search/court/${BOSTON_ORGANIZATION_ID}?text=${letter}&sd=${type}&initial=true`,
+    method: 'get' as const,
+    headers: { Authorization: `Bearer ${sessionToken}` },
+    muteHttpExceptions: true
+  }));
+  const playersById = new Map<string, DirectoryPlayer>();
+  for (const response of UrlFetchApp.fetchAll(requests)) {
+    const candidates = parseRtoResponse(response);
+    if (!Array.isArray(candidates)) {
+      throw new Error('RTO returned an unreadable Boston player directory.');
+    }
+    for (const candidate of candidates) {
+      const player = directoryPlayer(candidate, new Map(), true);
+      if (player) {
+        playersById.set(player.id, player);
+      }
+    }
+  }
+  return { players: [...playersById.values()].sort((left, right) => left.name.localeCompare(right.name)) };
 }
 
 export function adminLogin(payload: unknown): { readonly token: string } {
@@ -238,7 +264,8 @@ function parseRtoResponse(response: GoogleAppsScript.URL_Fetch.HTTPResponse): un
 
 function directoryPlayer(
   value: unknown,
-  primaryOrgByPersonId: ReadonlyMap<number, number>
+  primaryOrgByPersonId: ReadonlyMap<number, number>,
+  isBostonOverride = false
 ): DirectoryPlayer | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -256,7 +283,7 @@ function directoryPlayer(
     ) ||
       [readString(value, 'nameFirst', 'NameFirst'), readString(value, 'nameLast', 'NameLast')].filter(Boolean).join(' ')
   );
-  const handicap = Number(value.hcap ?? value.Hcap ?? value.HCap);
+  const handicap = Number(value.hcapLong ?? value.HcapLong ?? value.hcap ?? value.Hcap ?? value.HCap);
   if ((typeof id !== 'string' && typeof id !== 'number') || !name || !Number.isFinite(handicap)) {
     return undefined;
   }
@@ -266,7 +293,10 @@ function directoryPlayer(
     id: String(id),
     name,
     handicap,
-    isBoston: primaryOrgId === BOSTON_ORGANIZATION_ID || organizationIds(value).includes(BOSTON_ORGANIZATION_ID)
+    isBoston:
+      isBostonOverride ||
+      primaryOrgId === BOSTON_ORGANIZATION_ID ||
+      organizationIds(value).includes(BOSTON_ORGANIZATION_ID)
   };
 }
 

@@ -254,6 +254,7 @@ h2 {
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
 .close-button:focus-visible,
+.expand-search:focus-visible,
 .player-match select:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
@@ -471,10 +472,32 @@ dialog::backdrop {
   gap: 0.35rem;
 }
 
-.player-match span {
+.player-match-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.player-match label {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 750;
+}
+
+.expand-search {
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.expand-search:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 .player-match select {

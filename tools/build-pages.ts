@@ -24,7 +24,7 @@ await Promise.all([
   ),
   writeFile(
     path.join(outputDirectory, 'staging', 'admin', 'index.html'),
-    framePage('Score review', webAppUrl(adminDeploymentId))
+    framePage('Score Review', webAppUrl(adminDeploymentId))
   )
 ]);
 
