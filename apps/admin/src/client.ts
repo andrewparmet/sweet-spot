@@ -1,4 +1,5 @@
 import type { QueueRecord } from '../../../packages/shared/src/queue.ts';
+import { normalizedPlayerName, playerMatchScore } from './player-search.ts';
 
 interface AdminQueueItem {
   readonly tabName: string;
@@ -9,11 +10,12 @@ interface DirectoryPlayer {
   readonly id: string;
   readonly name: string;
   readonly handicap: number;
+  readonly isBoston: boolean;
 }
 
 type QueueView = 'review' | 'history';
 
-const DIRECTORY_CACHE_PREFIX = 'sweet-spot-rto-directory-v2';
+const DIRECTORY_CACHE_PREFIX = 'sweet-spot-rto-directory-v4';
 const SESSION_TOKEN_KEY = 'sweet-spot-rto-token';
 const loginShell = requiredElement<HTMLElement>('login-shell');
 const adminShell = requiredElement<HTMLElement>('admin-shell');
@@ -260,73 +262,57 @@ async function loadQueue(): Promise<void> {
   }
 }
 
-function directoryCacheKey(record: QueueRecord): string {
-  return `${DIRECTORY_CACHE_PREFIX}:${record.matchType}:${playerNames(record).map(normalizedName).join('|')}`;
+function directoryCacheKey(matchType: QueueRecord['matchType'], playerName: string): string {
+  return `${DIRECTORY_CACHE_PREFIX}:${matchType}:${normalizedPlayerName(playerName)}`;
 }
 
-function cachedDirectory(record: QueueRecord): DirectoryPlayer[] | undefined {
-  const serialized = sessionStorage.getItem(directoryCacheKey(record));
+function cachedDirectory(matchType: QueueRecord['matchType'], playerName: string): DirectoryPlayer[] | undefined {
+  const key = directoryCacheKey(matchType, playerName);
+  const serialized = sessionStorage.getItem(key);
   if (!serialized) {
     return undefined;
   }
   try {
     return JSON.parse(serialized) as DirectoryPlayer[];
   } catch {
-    sessionStorage.removeItem(directoryCacheKey(record));
+    sessionStorage.removeItem(key);
     return undefined;
   }
 }
 
 async function loadDirectory(record: QueueRecord): Promise<DirectoryPlayer[]> {
-  const cached = cachedDirectory(record);
-  if (cached) {
-    return cached;
-  }
+  const names = playerNames(record);
+  const cachedResults = names.map(name => cachedDirectory(record.matchType, name));
+  const missingNames = names.filter((_, index) => !cachedResults[index]);
   const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
   if (!token) {
     throw new Error('Sign in again.');
   }
-  const body = await callServer<{ readonly players?: DirectoryPlayer[]; readonly message?: string }>(
-    'loadPlayerDirectory',
-    token,
-    record.matchType,
-    playerNames(record)
-  );
-  if (!body.players) {
-    throw new Error(body.message || 'The player directory could not be loaded.');
+  let loadedPlayers: DirectoryPlayer[] = [];
+  if (missingNames.length > 0) {
+    const body = await callServer<{ readonly players?: DirectoryPlayer[]; readonly message?: string }>(
+      'loadPlayerDirectory',
+      token,
+      record.matchType,
+      missingNames
+    );
+    if (!body.players) {
+      throw new Error(body.message || 'The player directory could not be loaded.');
+    }
+    loadedPlayers = body.players;
+    for (const name of missingNames) {
+      sessionStorage.setItem(directoryCacheKey(record.matchType, name), JSON.stringify(loadedPlayers));
+    }
   }
-  if (body.players.length === 0) {
+  const playersById = new Map<string, DirectoryPlayer>();
+  for (const player of [...cachedResults.flatMap(players => players || []), ...loadedPlayers]) {
+    playersById.set(player.id, player);
+  }
+  const players = [...playersById.values()];
+  if (players.length === 0) {
     throw new Error('No RTO players matched the submitted names.');
   }
-  sessionStorage.setItem(directoryCacheKey(record), JSON.stringify(body.players));
-  return body.players;
-}
-
-function normalizedName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function matchScore(input: string, candidate: string): number {
-  const normalizedInput = normalizedName(input);
-  const normalizedCandidate = normalizedName(candidate);
-  if (normalizedInput === normalizedCandidate) {
-    return 0;
-  }
-  const inputParts = normalizedInput.split(' ');
-  const candidateParts = normalizedCandidate.split(' ');
-  const initialMatches = inputParts[0]?.length === 1 && inputParts[0] === candidateParts[0]?.[0];
-  const lastNameMatches = inputParts.slice(1).join(' ') === candidateParts.slice(1).join(' ');
-  if (initialMatches && lastNameMatches) {
-    return 1;
-  }
-  if (normalizedCandidate.includes(normalizedInput) || normalizedInput.includes(normalizedCandidate)) {
-    return 2;
-  }
-  return 3;
+  return players;
 }
 
 function playerMatchField(originalName: string, directory: readonly DirectoryPlayer[]): HTMLElement {
@@ -335,14 +321,27 @@ function playerMatchField(originalName: string, directory: readonly DirectoryPla
   label.append(textElement('span', '', originalName));
   const select = document.createElement('select');
   const ordered = [...directory].sort((left, right) => {
-    const scoreDifference = matchScore(originalName, left.name) - matchScore(originalName, right.name);
+    const scoreDifference = playerMatchScore(originalName, left.name) - playerMatchScore(originalName, right.name);
     return scoreDifference || left.name.localeCompare(right.name);
   });
-  for (const player of ordered) {
-    const option = document.createElement('option');
-    option.value = player.id;
-    option.textContent = `${player.name} (${player.handicap.toFixed(1)})`;
-    select.append(option);
+  const bestMatchId = ordered[0]?.id;
+  for (const [groupLabel, players] of [
+    ['Boston players', ordered.filter(player => player.isBoston)],
+    ['Other players', ordered.filter(player => !player.isBoston)]
+  ] as const) {
+    if (players.length === 0) {
+      continue;
+    }
+    const group = document.createElement('optgroup');
+    group.label = groupLabel;
+    for (const player of players) {
+      const option = document.createElement('option');
+      option.value = player.id;
+      option.textContent = `${player.name} (${player.handicap.toFixed(1)})`;
+      option.selected = player.id === bestMatchId;
+      group.append(option);
+    }
+    select.append(group);
   }
   label.append(select);
   return label;

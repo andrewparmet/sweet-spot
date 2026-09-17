@@ -9,18 +9,18 @@ const MAX_REQUEST_BYTES = 20_000;
 const LOCAL_TOKEN = 'local-admin-session';
 const htmlPath = path.join(appsScriptComponents.admin.distDirectory, 'Index.html');
 const directory = [
-  { id: '10001', name: 'Charlie Brown', handicap: 42.1 },
-  { id: '10002', name: 'Lucy van Pelt', handicap: 48.4 },
-  { id: '10003', name: 'Snoopy', handicap: 31.7 },
-  { id: '10004', name: 'Woodstock', handicap: 54.2 },
-  { id: '10005', name: 'Schroeder', handicap: 39.8 },
-  { id: '10006', name: 'Franklin Armstrong', handicap: 44.5 },
-  { id: '10007', name: 'Peppermint Patty', handicap: 36.3 },
-  { id: '10008', name: 'Marcie', handicap: 46.9 },
-  { id: '10009', name: 'Linus van Pelt', handicap: 43.6 },
-  { id: '10010', name: 'Sally Brown', handicap: 51.2 },
-  { id: '10011', name: 'Pig-Pen', handicap: 49.7 },
-  { id: '10012', name: 'Violet Gray', handicap: 45.1 }
+  { id: '10001', name: 'Charlie Brown', handicap: 42.1, isBoston: true },
+  { id: '10002', name: 'Lucy van Pelt', handicap: 48.4, isBoston: true },
+  { id: '10003', name: 'Snoopy', handicap: 31.7, isBoston: true },
+  { id: '10004', name: 'Woodstock', handicap: 54.2, isBoston: true },
+  { id: '10005', name: 'Schroeder', handicap: 39.8, isBoston: true },
+  { id: '10006', name: 'Franklin Armstrong', handicap: 44.5, isBoston: true },
+  { id: '10007', name: 'Peppermint Patty', handicap: 36.3, isBoston: false },
+  { id: '10008', name: 'Marcie', handicap: 46.9, isBoston: false },
+  { id: '10009', name: 'Linus van Pelt', handicap: 43.6, isBoston: false },
+  { id: '10010', name: 'Sally Brown', handicap: 51.2, isBoston: false },
+  { id: '10011', name: 'Pig-Pen', handicap: 49.7, isBoston: false },
+  { id: '10012', name: 'Violet Gray', handicap: 45.1, isBoston: false }
 ];
 
 const server = http.createServer(async (request, response) => {

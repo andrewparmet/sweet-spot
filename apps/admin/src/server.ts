@@ -25,6 +25,7 @@ interface DirectoryPlayer {
   readonly id: string;
   readonly name: string;
   readonly handicap: number;
+  readonly isBoston: boolean;
 }
 
 export function doGet(): GoogleAppsScript.HTML.HtmlOutput {
@@ -71,10 +72,11 @@ export function loadPlayerDirectory(
     throw new Error('The player search is incomplete.');
   }
   const names = playerNames.map(name => requiredString(name, 'Player name'));
+  const queries = new Set(names.flatMap(name => [name, lastName(name)]).filter(Boolean));
   const playersById = new Map<string, DirectoryPlayer>();
-  for (const name of names) {
+  for (const query of queries) {
     const response = rtoGet(
-      `/Person/list/search/SD/${type}?text=${encodeURIComponent(name)}&initial=false&mustHavePrimaryOrg=false`,
+      `/Person/list/search/SD/${type}?text=${encodeURIComponent(query)}&initial=false&mustHavePrimaryOrg=false`,
       sessionToken
     );
     if (!Array.isArray(response)) {
@@ -220,11 +222,41 @@ function directoryPlayer(value: unknown): DirectoryPlayer | undefined {
   if ((typeof id !== 'string' && typeof id !== 'number') || !name || !Number.isFinite(handicap)) {
     return undefined;
   }
-  return { id: String(id), name, handicap };
+  return { id: String(id), name, handicap, isBoston: organizationIds(value).includes(BOSTON_ORGANIZATION_ID) };
 }
 
 function cleanPlayerName(value: string): string {
   return value.replace(/\s*\((?:Singles|Doubles)(?: W\/Hand)?\)\s*$/i, '').trim();
+}
+
+function lastName(value: string): string {
+  return value.trim().split(/\s+/).at(-1) || '';
+}
+
+function organizationIds(value: Record<string, unknown>): number[] {
+  const directIds = [
+    value.orgID,
+    value.orgId,
+    value.OrgID,
+    value.OrgId,
+    value.primaryOrgID,
+    value.primaryOrgId,
+    value.PrimaryOrgID,
+    value.PrimaryOrgId
+  ];
+  const nestedIds = ['orgs', 'Orgs', 'organizations', 'Organizations', 'memberships', 'Memberships'].flatMap(key => {
+    const collection = value[key];
+    if (!Array.isArray(collection)) {
+      return [];
+    }
+    return collection.flatMap(item => {
+      if (!isRecord(item)) {
+        return [];
+      }
+      return [item.orgID, item.orgId, item.OrgID, item.OrgId];
+    });
+  });
+  return [...directIds, ...nestedIds].map(Number).filter(Number.isFinite);
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
