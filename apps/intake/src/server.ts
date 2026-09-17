@@ -22,6 +22,8 @@ import {
 
 const SPREADSHEET_ID_PROPERTY = 'SWEET_SPOT_SPREADSHEET_ID';
 const ENVIRONMENT_PROPERTY = 'SWEET_SPOT_ENVIRONMENT';
+const STAGING_SEED_VERSION_PROPERTY = 'SWEET_SPOT_STAGING_SEED_VERSION';
+const STAGING_SEED_VERSION = '1';
 const BOSTON_COURT_ID = 36;
 const BOSTON_TIME_ZONE = 'America/New_York';
 const WEEK_SHEET_NAME_PATTERN = /^\d{4}-W\d{2}$/;
@@ -54,9 +56,93 @@ export function ensureSetup(environment: 'production' | 'staging'): void {
   const configuredEnvironment = properties.getProperty(ENVIRONMENT_PROPERTY);
   const spreadsheetId = properties.getProperty(SPREADSHEET_ID_PROPERTY);
   if (configuredEnvironment === environment && spreadsheetId) {
+    if (environment === 'staging' && properties.getProperty(STAGING_SEED_VERSION_PROPERTY) !== STAGING_SEED_VERSION) {
+      seedStagingHistory(SpreadsheetApp.openById(spreadsheetId));
+      properties.setProperty(STAGING_SEED_VERSION_PROPERTY, STAGING_SEED_VERSION);
+    }
     return;
   }
   setup(environment);
+}
+
+function seedStagingHistory(spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet): void {
+  const seedDate = new Date();
+  seedDate.setDate(seedDate.getDate() - 7);
+  const matchDate = Utilities.formatDate(seedDate, BOSTON_TIME_ZONE, 'yyyy-MM-dd');
+  const timestamp = Utilities.formatDate(seedDate, BOSTON_TIME_ZONE, "yyyy-MM-dd'T'12:mm:ssXXX");
+  const tabName = isoWeekTabName(matchDate);
+  const sheet = ensureWeekSheet(spreadsheet, tabName);
+  const samples = [
+    {
+      key: 'charlie-snoopy',
+      matchType: 'S' as const,
+      side1Player1: 'Charlie Brown',
+      side1Player2: '',
+      side2Player1: 'Snoopy',
+      side2Player2: '',
+      score: '6-4,6-2',
+      handicap: ''
+    },
+    {
+      key: 'lucy-marcie',
+      matchType: 'S' as const,
+      side1Player1: 'Lucy van Pelt',
+      side1Player2: '',
+      side2Player1: 'Marcie',
+      side2Player2: '',
+      score: '10-8',
+      handicap: '-15/0'
+    },
+    {
+      key: 'patty-franklin',
+      matchType: 'D' as const,
+      side1Player1: 'Peppermint Patty',
+      side1Player2: 'Woodstock',
+      side2Player1: 'Franklin Armstrong',
+      side2Player2: 'Linus van Pelt',
+      score: '6-3,4-6,6-4',
+      handicap: '-h15/15'
+    }
+  ];
+  const existingRequestIds = new Set(
+    sheet.getLastRow() < 2
+      ? []
+      : sheet
+          .getRange(2, QUEUE_HEADERS.indexOf('Request ID') + 1, sheet.getLastRow() - 1, 1)
+          .getDisplayValues()
+          .flat()
+  );
+  for (const sample of samples) {
+    const requestId = `staging-seed-${tabName}-${sample.key}`;
+    if (existingRequestIds.has(requestId)) {
+      continue;
+    }
+    const submissionId = `staging-${Utilities.getUuid()}`;
+    const record: QueueRecord = {
+      submissionId,
+      requestId,
+      submittedAt: timestamp,
+      matchDate,
+      courtId: BOSTON_COURT_ID,
+      matchType: sample.matchType,
+      side1Player1: sample.side1Player1,
+      side1Player2: sample.side1Player2,
+      side2Player1: sample.side2Player1,
+      side2Player2: sample.side2Player2,
+      scoreOriginal: sample.score,
+      handicapEntryType: 'odds',
+      handicapOriginal: sample.handicap,
+      tournament: false,
+      status: 'Submitted',
+      scoreNormalized: normalizeScore(sample.score),
+      rtoPlayerIds: '',
+      rtoHandicapDifference: '',
+      rtoMatchId: `demo-${sample.key}`,
+      lastError: '',
+      updatedAt: timestamp
+    };
+    sheet.appendRow(queueRecordToRow(record));
+  }
 }
 
 function setupLocked(environment: 'production' | 'staging'): string {

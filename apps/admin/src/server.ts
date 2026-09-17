@@ -9,6 +9,19 @@ const WEEK_SHEET_NAME_PATTERN = /^\d{4}-W\d{2}$/;
 const LOGIN_RATE_LIMIT = 10;
 const TOKEN_VALIDATION_RATE_LIMIT = 120;
 const RATE_LIMIT_SECONDS = 60;
+type QueueView = 'review' | 'history';
+
+interface AdminQueueItem {
+  readonly tabName: string;
+  readonly record: QueueRecord;
+}
+
+interface QueuePage {
+  readonly items: AdminQueueItem[];
+  readonly page: number;
+  readonly hasNext: boolean;
+  readonly week?: string;
+}
 
 class RtoMatchSaveError extends Error {
   constructor(
@@ -115,15 +128,45 @@ export function adminLogin(payload: unknown): { readonly token: string } {
   }
 }
 
-export function loadAdminQueue(token: unknown, spreadsheetId: string): { readonly items: unknown[] } {
+export function loadAdminQueue(token: unknown, spreadsheetId: string, request: unknown): QueuePage {
   authorize(requiredString(token, 'RTO session'));
+  const { view, page } = validateQueuePageRequest(request);
   const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
-  const items = spreadsheet
+  const weeks = spreadsheet
     .getSheets()
     .filter(sheet => WEEK_SHEET_NAME_PATTERN.test(sheet.getName()))
-    .flatMap(sheet => recordsFromSheet(sheet).map(record => ({ tabName: sheet.getName(), record })))
-    .sort((left, right) => right.record.submittedAt.localeCompare(left.record.submittedAt));
-  return { items };
+    .map(sheet => ({
+      tabName: sheet.getName(),
+      items: recordsFromSheet(sheet).map(record => ({ tabName: sheet.getName(), record }))
+    }));
+  return paginateQueueWeeks(weeks, view, page);
+}
+
+export function paginateQueueWeeks(
+  weeks: readonly { readonly tabName: string; readonly items: readonly AdminQueueItem[] }[],
+  view: QueueView,
+  page: number
+): QueuePage {
+  if (view === 'review') {
+    const items = weeks
+      .flatMap(week => week.items)
+      .filter(item => !isHistoryRecord(item.record))
+      .sort((left, right) => right.record.submittedAt.localeCompare(left.record.submittedAt));
+    return { items, page: 0, hasNext: false };
+  }
+  const historyWeeks = weeks
+    .map(week => ({ ...week, items: week.items.filter(item => isHistoryRecord(item.record)) }))
+    .filter(week => week.items.length > 0)
+    .sort((left, right) => right.tabName.localeCompare(left.tabName));
+  const selectedWeek = historyWeeks[page];
+  return {
+    items: selectedWeek
+      ? [...selectedWeek.items].sort((left, right) => right.record.submittedAt.localeCompare(left.record.submittedAt))
+      : [],
+    page,
+    hasNext: historyWeeks.length > page + 1,
+    ...(selectedWeek ? { week: selectedWeek.tabName } : {})
+  };
 }
 
 export function loadPlayerDirectory(
@@ -704,6 +747,21 @@ function recordsFromSheet(sheet: GoogleAppsScript.Spreadsheet.Sheet): QueueRecor
     .getDisplayValues()
     .filter(row => row.some(Boolean))
     .map(row => recordFromRow(row));
+}
+
+function validateQueuePageRequest(request: unknown): { readonly view: QueueView; readonly page: number } {
+  if (!isRecord(request) || (request.view !== 'review' && request.view !== 'history')) {
+    throw new Error('Choose a valid queue view.');
+  }
+  const page = Number(request.page);
+  if (!Number.isSafeInteger(page) || page < 0 || page > 100_000) {
+    throw new Error('Choose a valid history page.');
+  }
+  return { view: request.view, page };
+}
+
+function isHistoryRecord(record: QueueRecord): boolean {
+  return record.status === 'Submitted' || record.status === 'Withdrawn';
 }
 
 function recordFromRow(row: readonly string[]): QueueRecord {

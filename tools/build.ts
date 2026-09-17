@@ -69,8 +69,8 @@ function adminLogin(payload) {
   return SweetSpotAdminServer.adminLogin(payload);
 }
 
-function loadAdminQueue(token) {
-  return SweetSpotAdminServer.loadAdminQueue(token, ${spreadsheetId});
+function loadAdminQueue(token, request) {
+  return SweetSpotAdminServer.loadAdminQueue(token, ${spreadsheetId}, request);
 }
 
 function loadBostonDirectory(token, matchType) {

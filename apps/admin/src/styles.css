@@ -325,6 +325,26 @@ h2 {
   text-align: center;
 }
 
+.history-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.history-pagination[hidden] {
+  display: none;
+}
+
+.history-pagination span {
+  min-width: 4.5rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 750;
+  text-align: center;
+}
+
 .match-card {
   padding: 1rem;
   border: 1px solid var(--line);
@@ -526,6 +546,21 @@ dialog::backdrop {
   background: var(--canvas);
   font-weight: 750;
   text-align: center;
+}
+
+.dialog-handicap {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: -0.35rem 0 1rem;
+  padding: 0 0.2rem;
+}
+
+.dialog-handicap span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
 }
 
 .score-override {

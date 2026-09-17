@@ -46,12 +46,39 @@ const server = http.createServer(async (request, response) => {
       send(response, 401, 'application/json', JSON.stringify({ message: 'Sign in again.' }));
       return;
     }
-    if (request.method === 'GET' && request.url === '/api/queue') {
+    if (request.method === 'GET' && request.url?.startsWith('/api/queue')) {
+      const requestUrl = new URL(request.url, `http://${request.headers.host ?? '127.0.0.1'}`);
+      const view = requestUrl.searchParams.get('view') === 'history' ? 'history' : 'review';
+      const requestedPage = Number(requestUrl.searchParams.get('page') ?? '0');
+      const page = Number.isSafeInteger(requestedPage) && requestedPage >= 0 ? requestedPage : 0;
       const tabs = await readLocalTabs();
-      const items = Array.from(tabs.entries())
-        .flatMap(([tabName, records]) => records.map(record => ({ tabName, record })))
-        .sort((left, right) => right.record.submittedAt.localeCompare(left.record.submittedAt));
-      send(response, 200, 'application/json', JSON.stringify({ items }));
+      const weeks = Array.from(tabs.entries()).map(([tabName, records]) => ({
+        tabName,
+        items: records.map(record => ({ tabName, record }))
+      }));
+      const isHistory = (item: (typeof weeks)[number]['items'][number]): boolean =>
+        item.record.status === 'Submitted' || item.record.status === 'Withdrawn';
+      const historyWeeks = weeks
+        .map(week => ({ ...week, items: week.items.filter(isHistory) }))
+        .filter(week => week.items.length > 0)
+        .sort((left, right) => right.tabName.localeCompare(left.tabName));
+      const selectedWeek = historyWeeks[page];
+      const items = (
+        view === 'history'
+          ? (selectedWeek?.items ?? [])
+          : weeks.flatMap(week => week.items).filter(item => !isHistory(item))
+      ).sort((left, right) => right.record.submittedAt.localeCompare(left.record.submittedAt));
+      send(
+        response,
+        200,
+        'application/json',
+        JSON.stringify({
+          items,
+          page: view === 'history' ? page : 0,
+          hasNext: view === 'history' && historyWeeks.length > page + 1,
+          week: view === 'history' ? selectedWeek?.tabName : undefined
+        })
+      );
       return;
     }
     if (request.method === 'GET' && request.url === '/api/directory') {

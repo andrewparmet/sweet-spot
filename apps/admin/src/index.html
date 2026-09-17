@@ -84,6 +84,11 @@
         </div>
         <div id="queue-message" class="queue-message" role="status">Loading queue…</div>
         <div id="queue-list" class="queue-list"></div>
+        <nav id="history-pagination" class="history-pagination" aria-label="History pages" hidden>
+          <button id="history-previous" class="secondary-button" type="button">Previous</button>
+          <span id="history-page" aria-live="polite"></span>
+          <button id="history-next" class="secondary-button" type="button">Next</button>
+        </nav>
       </section>
     </main>
 
@@ -101,6 +106,10 @@
         </div>
         <div id="dialog-content" hidden>
           <div id="dialog-match" class="dialog-match"></div>
+          <div class="dialog-handicap">
+            <span id="dialog-handicap-label"></span>
+            <strong id="dialog-handicap-value"></strong>
+          </div>
           <label class="score-override" for="review-score">
             <span>Score</span>
             <input id="review-score" type="text" inputmode="numeric" autocomplete="off" maxlength="100" />

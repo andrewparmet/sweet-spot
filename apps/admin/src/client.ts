@@ -36,6 +36,10 @@ const queueList = requiredElement<HTMLElement>('queue-list');
 const refreshButton = requiredElement<HTMLButtonElement>('refresh-button');
 const reviewTab = requiredElement<HTMLButtonElement>('review-tab');
 const historyTab = requiredElement<HTMLButtonElement>('history-tab');
+const historyPagination = requiredElement<HTMLElement>('history-pagination');
+const historyPrevious = requiredElement<HTMLButtonElement>('history-previous');
+const historyNext = requiredElement<HTMLButtonElement>('history-next');
+const historyPageLabel = requiredElement<HTMLElement>('history-page');
 const reviewDialog = requiredElement<HTMLDialogElement>('review-dialog');
 const closeDialogButton = requiredElement<HTMLButtonElement>('close-dialog');
 const cancelDialogButton = requiredElement<HTMLButtonElement>('cancel-dialog');
@@ -44,6 +48,8 @@ const dialogLoading = requiredElement<HTMLElement>('dialog-loading');
 const loadingLabel = requiredElement<HTMLElement>('loading-label');
 const dialogContent = requiredElement<HTMLElement>('dialog-content');
 const dialogMatch = requiredElement<HTMLElement>('dialog-match');
+const dialogHandicapLabel = requiredElement<HTMLElement>('dialog-handicap-label');
+const dialogHandicapValue = requiredElement<HTMLElement>('dialog-handicap-value');
 const reviewScore = requiredElement<HTMLInputElement>('review-score');
 const playerMatches = requiredElement<HTMLElement>('player-matches');
 const dialogError = requiredElement<HTMLElement>('dialog-error');
@@ -51,6 +57,9 @@ const dialogActions = requiredElement<HTMLElement>('dialog-actions');
 
 let allItems: AdminQueueItem[] = [];
 let activeView: QueueView = 'review';
+let historyPage = 0;
+let historyHasNext = false;
+let historyWeek = '';
 let selectedItem: AdminQueueItem | undefined;
 let submitting = false;
 const directoryLoads = new Map<QueueRecord['matchType'], Promise<DirectoryPlayer[]>>();
@@ -104,7 +113,12 @@ async function callLocalServer<T>(functionName: string, args: readonly unknown[]
   if (!route) {
     throw new Error(`Missing local route: ${functionName}`);
   }
-  const response = await fetch(route.path, {
+  const queueRequest = functionName === 'loadAdminQueue' ? args.at(-1) : undefined;
+  const queueQuery =
+    queueRequest && typeof queueRequest === 'object'
+      ? `?view=${encodeURIComponent(String(Reflect.get(queueRequest, 'view')))}&page=${encodeURIComponent(String(Reflect.get(queueRequest, 'page')))}`
+      : '';
+  const response = await fetch(route.path + queueQuery, {
     method: route.method,
     headers: {
       ...(route.method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
@@ -199,6 +213,27 @@ function formatEntryTimestamp(submittedAt: string): string | undefined {
   }).format(timestamp)}`;
 }
 
+function formatHistoryWeek(weekId: string): string {
+  const match = /^(\d{4})-W(\d{2})$/.exec(weekId);
+  if (!match) {
+    return '';
+  }
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  const januaryFourth = new Date(Date.UTC(year, 0, 4));
+  const januaryFourthDay = januaryFourth.getUTCDay() || 7;
+  const start = new Date(januaryFourth);
+  start.setUTCDate(januaryFourth.getUTCDate() - januaryFourthDay + 1 + (week - 1) * 7);
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 6);
+  return new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC'
+  }).formatRange(start, end);
+}
+
 function isHistory(record: QueueRecord): boolean {
   return record.status === 'Submitted' || record.status === 'Withdrawn';
 }
@@ -277,7 +312,7 @@ function matchCard(item: AdminQueueItem): HTMLElement {
 }
 
 function visibleItems(): AdminQueueItem[] {
-  return allItems.filter(item => (activeView === 'history' ? isHistory(item.record) : !isHistory(item.record)));
+  return allItems;
 }
 
 function emptyMessage(): string {
@@ -291,26 +326,39 @@ function render(): void {
   queueMessage.hidden = items.length > 0;
   reviewTab.setAttribute('aria-selected', String(activeView === 'review'));
   historyTab.setAttribute('aria-selected', String(activeView === 'history'));
+  historyPagination.hidden = activeView !== 'history' || (historyPage === 0 && !historyHasNext);
+  historyPrevious.disabled = historyPage === 0;
+  historyNext.disabled = !historyHasNext;
+  historyPageLabel.textContent = formatHistoryWeek(historyWeek);
 }
 
-async function loadQueue(): Promise<void> {
+async function loadQueue(page = activeView === 'history' ? historyPage : 0): Promise<void> {
   refreshButton.disabled = true;
+  historyPrevious.disabled = true;
+  historyNext.disabled = true;
   queueMessage.hidden = false;
   queueMessage.textContent = 'Loading queue…';
+  queueList.replaceChildren();
   try {
     const token = sessionStorage.getItem(SESSION_TOKEN_KEY);
     if (!token) {
       showLogin();
       return;
     }
-    const body = await callServer<{ readonly items?: AdminQueueItem[]; readonly message?: string }>(
-      'loadAdminQueue',
-      token
-    );
+    const body = await callServer<{
+      readonly items?: AdminQueueItem[];
+      readonly page?: number;
+      readonly hasNext?: boolean;
+      readonly week?: string;
+      readonly message?: string;
+    }>('loadAdminQueue', token, { view: activeView, page });
     if (!body.items) {
       throw new Error(body.message || 'The queue could not be loaded.');
     }
     allItems = body.items;
+    historyPage = activeView === 'history' ? (body.page ?? page) : 0;
+    historyHasNext = activeView === 'history' && body.hasNext === true;
+    historyWeek = activeView === 'history' ? (body.week ?? '') : '';
     render();
   } catch (error) {
     if (isAuthenticationError(error)) {
@@ -587,6 +635,12 @@ async function openReview(item: AdminQueueItem): Promise<void> {
     const sides = playerSides(record);
     const bostonPlayers = await loadBostonPlayers(record.matchType);
     dialogMatch.textContent = `${teamName(record, 1)} vs ${teamName(record, 2)}`;
+    dialogHandicapLabel.textContent = record.handicapOriginal
+      ? record.handicapEntryType === 'difference'
+        ? 'Difference'
+        : 'Odds'
+      : 'Handicap';
+    dialogHandicapValue.textContent = record.handicapOriginal || 'Level';
     reviewScore.value = record.scoreOriginal;
     let playerIndex = 0;
     playerMatches.replaceChildren(
@@ -697,6 +751,9 @@ function signOut(): void {
   }
   passwordInput.value = '';
   allItems = [];
+  historyPage = 0;
+  historyHasNext = false;
+  historyWeek = '';
   directoryLoads.clear();
   queueList.replaceChildren();
   showLogin();
@@ -743,13 +800,24 @@ async function login(event: SubmitEvent): Promise<void> {
 
 refreshButton.addEventListener('click', () => void loadQueue());
 reviewTab.addEventListener('click', () => {
+  if (activeView === 'review') {
+    return;
+  }
   activeView = 'review';
-  render();
+  allItems = [];
+  void loadQueue(0);
 });
 historyTab.addEventListener('click', () => {
+  if (activeView === 'history') {
+    return;
+  }
   activeView = 'history';
-  render();
+  allItems = [];
+  historyPage = 0;
+  void loadQueue(0);
 });
+historyPrevious.addEventListener('click', () => void loadQueue(Math.max(0, historyPage - 1)));
+historyNext.addEventListener('click', () => void loadQueue(historyPage + 1));
 closeDialogButton.addEventListener('click', closeReview);
 cancelDialogButton.addEventListener('click', closeReview);
 demoSubmitButton.addEventListener('click', () => void submitReviewedMatch());
