@@ -28,6 +28,11 @@ interface DirectoryPlayer {
   readonly isBoston: boolean;
 }
 
+interface PlayerSearchResult {
+  readonly query: string;
+  readonly players: DirectoryPlayer[];
+}
+
 export function doGet(): GoogleAppsScript.HTML.HtmlOutput {
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Score review')
@@ -64,15 +69,43 @@ export function loadPlayerDirectory(
   token: unknown,
   matchType: unknown,
   playerNames: unknown
-): { readonly players: DirectoryPlayer[] } {
+): { readonly results: PlayerSearchResult[] } {
   const sessionToken = requiredString(token, 'RTO session');
   authorize(sessionToken);
   const type = requiredMatchType(matchType);
-  if (!Array.isArray(playerNames) || playerNames.length < 2 || playerNames.length > 4) {
+  if (!Array.isArray(playerNames) || playerNames.length < 1 || playerNames.length > 4) {
     throw new Error('The player search is incomplete.');
   }
   const names = playerNames.map(name => requiredString(name, 'Player name'));
-  const queries = new Set(names.flatMap(name => [name, lastName(name)]).filter(Boolean));
+  return { results: names.map(name => searchPlayers(sessionToken, type, name)) };
+}
+
+function searchPlayers(sessionToken: string, type: 'S' | 'D', name: string): PlayerSearchResult {
+  const primaryOrgByPersonId = new Map<number, number>();
+  const resolvedNames = new Set<string>();
+  const directoryResponse = rtoGet(
+    `/Person/directory/search?query=${encodeURIComponent(name)}&maxResults=10`,
+    sessionToken
+  );
+  if (!isRecord(directoryResponse) || !Array.isArray(directoryResponse.people ?? directoryResponse.People)) {
+    throw new Error('RTO returned an unreadable person directory.');
+  }
+  const people = (directoryResponse.people ?? directoryResponse.People) as unknown[];
+  for (const person of people.slice(0, 10)) {
+    if (!isRecord(person)) {
+      continue;
+    }
+    const personId = Number(person.personID ?? person.PersonID);
+    const primaryOrgId = Number(person.primaryOrgID ?? person.PrimaryOrgID);
+    const resolvedName = readString(person, 'nameFirstLastTag', 'NameFirstLastTag', 'nameFirstLast', 'NameFirstLast');
+    if (Number.isFinite(personId) && Number.isFinite(primaryOrgId)) {
+      primaryOrgByPersonId.set(personId, primaryOrgId);
+    }
+    if (resolvedName) {
+      resolvedNames.add(resolvedName);
+    }
+  }
+  const queries = new Set([name, lastName(name), ...resolvedNames].filter(Boolean));
   const playersById = new Map<string, DirectoryPlayer>();
   for (const query of queries) {
     const response = rtoGet(
@@ -83,13 +116,13 @@ export function loadPlayerDirectory(
       throw new Error('RTO returned an unreadable player directory.');
     }
     for (const candidate of response) {
-      const player = directoryPlayer(candidate);
+      const player = directoryPlayer(candidate, primaryOrgByPersonId);
       if (player) {
         playersById.set(player.id, player);
       }
     }
   }
-  return { players: [...playersById.values()] };
+  return { query: name, players: [...playersById.values()] };
 }
 
 export function demoSubmitMatch(token: unknown, payload: unknown, spreadsheetId: string): { readonly submitted: true } {
@@ -201,7 +234,10 @@ function parseRtoResponse(response: GoogleAppsScript.URL_Fetch.HTTPResponse): un
   return body;
 }
 
-function directoryPlayer(value: unknown): DirectoryPlayer | undefined {
+function directoryPlayer(
+  value: unknown,
+  primaryOrgByPersonId: ReadonlyMap<number, number>
+): DirectoryPlayer | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
@@ -222,7 +258,14 @@ function directoryPlayer(value: unknown): DirectoryPlayer | undefined {
   if ((typeof id !== 'string' && typeof id !== 'number') || !name || !Number.isFinite(handicap)) {
     return undefined;
   }
-  return { id: String(id), name, handicap, isBoston: organizationIds(value).includes(BOSTON_ORGANIZATION_ID) };
+  const personId = Number(value.personID ?? value.personId ?? value.PersonID);
+  const primaryOrgId = primaryOrgByPersonId.get(personId);
+  return {
+    id: String(id),
+    name,
+    handicap,
+    isBoston: primaryOrgId === BOSTON_ORGANIZATION_ID || organizationIds(value).includes(BOSTON_ORGANIZATION_ID)
+  };
 }
 
 function cleanPlayerName(value: string): string {

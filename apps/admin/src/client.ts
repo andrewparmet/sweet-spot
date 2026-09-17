@@ -15,7 +15,7 @@ interface DirectoryPlayer {
 
 type QueueView = 'review' | 'history';
 
-const DIRECTORY_CACHE_PREFIX = 'sweet-spot-rto-directory-v4';
+const DIRECTORY_CACHE_PREFIX = 'sweet-spot-rto-directory-v6';
 const SESSION_TOKEN_KEY = 'sweet-spot-rto-token';
 const loginShell = requiredElement<HTMLElement>('login-shell');
 const adminShell = requiredElement<HTMLElement>('admin-shell');
@@ -101,9 +101,14 @@ async function callLocalServer<T>(functionName: string, args: readonly unknown[]
     ...(route.method === 'POST' ? { body: JSON.stringify(args.at(-1)) } : {}),
     cache: 'no-store'
   });
-  const body = (await response.json()) as T & { readonly message?: string };
+  const body = (await response.json()) as T & { readonly message?: string; readonly players?: DirectoryPlayer[] };
   if (!response.ok) {
     throw new Error(body.message || 'The request failed.');
+  }
+  if (functionName === 'loadPlayerDirectory' && body.players && Array.isArray(args[2])) {
+    return {
+      results: (args[2] as unknown[]).map(query => ({ query: String(query), players: body.players }))
+    } as T;
   }
   return body;
 }
@@ -280,7 +285,7 @@ function cachedDirectory(matchType: QueueRecord['matchType'], playerName: string
   }
 }
 
-async function loadDirectory(record: QueueRecord): Promise<DirectoryPlayer[]> {
+async function loadDirectories(record: QueueRecord): Promise<DirectoryPlayer[][]> {
   const names = playerNames(record);
   const cachedResults = names.map(name => cachedDirectory(record.matchType, name));
   const missingNames = names.filter((_, index) => !cachedResults[index]);
@@ -288,31 +293,28 @@ async function loadDirectory(record: QueueRecord): Promise<DirectoryPlayer[]> {
   if (!token) {
     throw new Error('Sign in again.');
   }
-  let loadedPlayers: DirectoryPlayer[] = [];
+  const loadedByName = new Map<string, DirectoryPlayer[]>();
   if (missingNames.length > 0) {
-    const body = await callServer<{ readonly players?: DirectoryPlayer[]; readonly message?: string }>(
-      'loadPlayerDirectory',
-      token,
-      record.matchType,
-      missingNames
-    );
-    if (!body.players) {
+    const body = await callServer<{
+      readonly results?: { readonly query: string; readonly players: DirectoryPlayer[] }[];
+      readonly message?: string;
+    }>('loadPlayerDirectory', token, record.matchType, missingNames);
+    if (!body.results) {
       throw new Error(body.message || 'The player directory could not be loaded.');
     }
-    loadedPlayers = body.players;
-    for (const name of missingNames) {
-      sessionStorage.setItem(directoryCacheKey(record.matchType, name), JSON.stringify(loadedPlayers));
+    for (const result of body.results) {
+      loadedByName.set(normalizedPlayerName(result.query), result.players);
+      sessionStorage.setItem(directoryCacheKey(record.matchType, result.query), JSON.stringify(result.players));
     }
   }
-  const playersById = new Map<string, DirectoryPlayer>();
-  for (const player of [...cachedResults.flatMap(players => players || []), ...loadedPlayers]) {
-    playersById.set(player.id, player);
+  const directories = names.map(
+    (name, index) => cachedResults[index] || loadedByName.get(normalizedPlayerName(name)) || []
+  );
+  const unmatchedName = names.find((_, index) => directories[index]?.length === 0);
+  if (unmatchedName) {
+    throw new Error(`No RTO players matched ${unmatchedName}.`);
   }
-  const players = [...playersById.values()];
-  if (players.length === 0) {
-    throw new Error('No RTO players matched the submitted names.');
-  }
-  return players;
+  return directories;
 }
 
 function playerMatchField(originalName: string, directory: readonly DirectoryPlayer[]): HTMLElement {
@@ -357,9 +359,10 @@ async function openReview(item: AdminQueueItem): Promise<void> {
   reviewDialog.showModal();
   try {
     const { record } = item;
-    const directory = await loadDirectory(record);
+    const names = playerNames(record);
+    const directories = await loadDirectories(record);
     dialogMatch.textContent = `${teamName(record, 1)} vs ${teamName(record, 2)} · ${record.scoreOriginal}`;
-    playerMatches.replaceChildren(...playerNames(record).map(name => playerMatchField(name, directory)));
+    playerMatches.replaceChildren(...names.map((name, index) => playerMatchField(name, directories[index] || [])));
     dialogLoading.hidden = true;
     dialogContent.hidden = false;
     dialogActions.hidden = false;
