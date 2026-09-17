@@ -182,6 +182,9 @@ function setFormLocked(locked: boolean): void {
 }
 
 function showError(error: Error): void {
+  lastSubmission = undefined;
+  successView.hidden = true;
+  setUndoing(false);
   formMessage.classList.remove('notice');
   formMessage.textContent = error.message || 'The score could not be submitted. Try again.';
   formMessage.hidden = false;
@@ -196,7 +199,7 @@ function showSuccess(result: MatchSubmissionResponse): void {
     requestId: lastSubmittedDraft?.requestId ?? pendingRequestId
   };
   localStorage.removeItem(DRAFT_KEY);
-  successView.hidden = false;
+  setUndoing(false);
   successView.focus();
   successView.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -283,6 +286,8 @@ form.addEventListener('submit', event => {
 
   setSubmitted(true);
   setFormLocked(true);
+  successView.hidden = false;
+  undoButton.disabled = true;
   const draft = currentDraft();
   lastSubmittedDraft = draft;
   const payload: MatchSubmissionRequest = {

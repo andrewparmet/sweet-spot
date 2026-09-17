@@ -30,6 +30,7 @@ const THROTTLE_SECONDS = 3;
 export function doGet(): GoogleAppsScript.HTML.HtmlOutput {
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Match Entry')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
 }
 
