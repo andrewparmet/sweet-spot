@@ -54,7 +54,7 @@ export async function withdrawLocalRecord(submissionId: string, requestId: strin
     if (!record) {
       break;
     }
-    if (record.status === 'Submitted') {
+    if (record.status === 'Submitted' || record.status === 'Needs reconciliation') {
       throw new Error('That score has already been submitted to RTO and can no longer be undone here.');
     }
     records[recordIndex] = {

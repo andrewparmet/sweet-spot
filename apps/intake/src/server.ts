@@ -251,7 +251,7 @@ export function undoSubmission(payload: unknown): UndoSubmissionResponse {
     const updatedAtColumn = QUEUE_HEADERS.indexOf('Updated At') + 1;
     const statusCell = sheet.getRange(location.rowNumber, statusColumn);
     const status = String(statusCell.getValue());
-    if (status === 'Submitted' || status === 'Ready') {
+    if (status === 'Submitted' || status === 'Ready' || status === 'Needs reconciliation') {
       throw new Error('That score has already been submitted to RTO and can no longer be undone here.');
     }
     if (status !== 'Withdrawn') {

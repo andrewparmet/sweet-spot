@@ -297,7 +297,7 @@ function matchCard(item: AdminQueueItem): HTMLElement {
   }
 
   article.append(top, matchup, details);
-  if (!isHistory(record) && record.status !== 'Ready') {
+  if (!isHistory(record) && record.status !== 'Needs reconciliation') {
     const footer = document.createElement('div');
     footer.className = 'card-footer';
     const action = document.createElement('button');

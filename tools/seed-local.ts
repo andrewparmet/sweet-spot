@@ -31,50 +31,18 @@ function sample(overrides: SampleOverrides): QueueRecord {
   };
 }
 
-const week37: QueueRecord[] = [
+const week38: QueueRecord[] = [
   sample({
     submissionId: 'sample-submission-001',
     requestId: 'sample-request-001',
-    submittedAt: '2026-09-10T18:12:00-04:00',
-    matchDate: '2026-09-10',
-    status: 'Submitted',
-    rtoPlayerIds: '10001,10002',
-    rtoHandicapDifference: '-16',
-    rtoMatchId: '987654',
-    updatedAt: '2026-09-10T18:18:00-04:00'
-  }),
-  sample({
-    submissionId: 'sample-submission-002',
-    requestId: 'sample-request-002',
-    submittedAt: '2026-09-12T14:25:00-04:00',
-    matchDate: '2026-09-12',
-    matchType: 'D',
-    side1Player1: 'Peppermint Patty',
-    side1Player2: 'Marcie',
-    side2Player1: 'Linus van Pelt',
-    side2Player2: 'Sally Brown',
-    scoreOriginal: '6-4, 3-6, 6-5',
-    scoreNormalized: '6/4 3/6 6/5',
-    handicapEntryType: 'difference',
-    handicapOriginal: '8',
-    status: 'Failed',
-    lastError: 'One player needs an RTO match.',
-    updatedAt: '2026-09-12T14:31:00-04:00'
-  })
-];
-
-const week38: QueueRecord[] = [
-  sample({
-    submissionId: 'sample-submission-003',
-    requestId: 'sample-request-003',
     submittedAt: '2026-09-17T08:05:00-04:00',
     matchDate: '2026-09-17',
     handicapOriginal: '',
     updatedAt: '2026-09-17T08:05:00-04:00'
   }),
   sample({
-    submissionId: 'sample-submission-004',
-    requestId: 'sample-request-004',
+    submissionId: 'sample-submission-002',
+    requestId: 'sample-request-002',
     submittedAt: '2026-09-17T08:15:00-04:00',
     matchDate: '2026-09-17',
     matchType: 'D',
@@ -87,14 +55,12 @@ const week38: QueueRecord[] = [
     handicapEntryType: 'difference',
     handicapOriginal: '-4',
     tournament: true,
-    status: 'Ready',
-    rtoPlayerIds: '10003,10004,10005,10006',
-    rtoHandicapDifference: '-4',
+    status: 'Needs review',
     updatedAt: '2026-09-17T08:22:00-04:00'
   }),
   sample({
-    submissionId: 'sample-submission-005',
-    requestId: 'sample-request-005',
+    submissionId: 'sample-submission-003',
+    requestId: 'sample-request-003',
     submittedAt: '2026-09-17T08:30:00-04:00',
     matchDate: '2026-09-17',
     side1Player1: 'C Brown',
@@ -103,24 +69,84 @@ const week38: QueueRecord[] = [
     scoreNormalized: '4/3',
     handicapOriginal: '15/0',
     status: 'Needs review',
-    rtoPlayerIds: '10001,10002',
-    rtoHandicapDifference: '15',
     updatedAt: '2026-09-17T08:31:00-04:00'
+  })
+];
+
+const week37: QueueRecord[] = [
+  sample({
+    submissionId: 'history-submission-001',
+    requestId: 'history-request-001',
+    submittedAt: '2026-09-10T18:12:00-04:00',
+    matchDate: '2026-09-10',
+    status: 'Submitted',
+    rtoPlayerIds: '10001,10002',
+    rtoHandicapDifference: '-16',
+    rtoMatchId: 'demo-history-001',
+    updatedAt: '2026-09-10T18:18:00-04:00'
   }),
   sample({
-    submissionId: 'sample-submission-006',
-    requestId: 'sample-request-006',
-    submittedAt: '2026-09-17T08:40:00-04:00',
-    matchDate: '2026-09-17',
+    submissionId: 'history-submission-002',
+    requestId: 'history-request-002',
+    submittedAt: '2026-09-12T14:25:00-04:00',
+    matchDate: '2026-09-12',
+    side1Player1: 'Peppermint Patty',
+    side2Player1: 'Marcie',
+    scoreOriginal: '10-8',
+    scoreNormalized: '10/8',
+    handicapOriginal: '15/0',
+    tournament: true,
+    status: 'Submitted',
+    rtoPlayerIds: '10007,10008',
+    rtoHandicapDifference: '15',
+    rtoMatchId: 'demo-history-002',
+    updatedAt: '2026-09-12T14:31:00-04:00'
+  })
+];
+
+const week36: QueueRecord[] = [
+  sample({
+    submissionId: 'history-submission-003',
+    requestId: 'history-request-003',
+    submittedAt: '2026-09-03T17:40:00-04:00',
+    matchDate: '2026-09-03',
+    matchType: 'D',
+    side1Player1: 'Snoopy',
+    side1Player2: 'Woodstock',
+    side2Player1: 'Schroeder',
+    side2Player2: 'Franklin Armstrong',
+    scoreOriginal: '6-4, 6-5',
+    scoreNormalized: '6/4 6/5',
+    handicapEntryType: 'difference',
+    handicapOriginal: '-4',
+    status: 'Submitted',
+    rtoPlayerIds: '10003,10004,10005,10006',
+    rtoHandicapDifference: '-4',
+    rtoMatchId: 'demo-history-003',
+    updatedAt: '2026-09-03T17:44:00-04:00'
+  })
+];
+
+const week35: QueueRecord[] = [
+  sample({
+    submissionId: 'history-submission-004',
+    requestId: 'history-request-004',
+    submittedAt: '2026-08-27T08:30:00-04:00',
+    matchDate: '2026-08-27',
     side1Player1: 'Pig-Pen',
     side2Player1: 'Violet Gray',
     scoreOriginal: '6-5, 2-1',
     scoreNormalized: '6/5 2/1',
     handicapOriginal: '-h15/15',
     status: 'Withdrawn',
-    updatedAt: '2026-09-17T08:43:00-04:00'
+    updatedAt: '2026-08-27T08:43:00-04:00'
   })
 ];
 
-await Promise.all([writeLocalTab('2026-W37', week37), writeLocalTab('2026-W38', week38)]);
-console.log('Seeded 6 local submissions across 2026-W37 and 2026-W38.');
+await Promise.all([
+  writeLocalTab('2026-W35', week35),
+  writeLocalTab('2026-W36', week36),
+  writeLocalTab('2026-W37', week37),
+  writeLocalTab('2026-W38', week38)
+]);
+console.log('Seeded 3 review submissions and 4 history submissions across 4 weeks.');

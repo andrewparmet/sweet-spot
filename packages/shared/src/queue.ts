@@ -1,6 +1,6 @@
 import type { HandicapEntryType, MatchType } from './match.ts';
 
-export const QUEUE_STATUSES = ['Needs review', 'Ready', 'Submitted', 'Failed', 'Withdrawn'] as const;
+export const QUEUE_STATUSES = ['Needs review', 'Needs reconciliation', 'Submitted', 'Failed', 'Withdrawn'] as const;
 
 export type QueueStatus = (typeof QUEUE_STATUSES)[number];
 

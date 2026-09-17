@@ -372,7 +372,7 @@ h2 {
   font-weight: 800;
 }
 
-.status-ready {
+.status-needs-reconciliation {
   color: #3f570e;
   background: #edf4d7;
 }

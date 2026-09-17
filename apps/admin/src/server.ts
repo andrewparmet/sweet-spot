@@ -263,7 +263,7 @@ export function submitReviewedMatch(
       if (record.status === 'Submitted' || record.status === 'Withdrawn') {
         throw new Error('That submission is no longer available for review.');
       }
-      if (liveRtoSubmission && record.status === 'Ready') {
+      if (liveRtoSubmission && record.status === 'Needs reconciliation') {
         throw new Error('This submission may already have reached RTO and must be reconciled before retrying.');
       }
       const timestamp = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
@@ -306,7 +306,7 @@ export function submitReviewedMatch(
         );
         throw error;
       }
-      setCell(sheet, rowNumber, 'Status', 'Ready');
+      setCell(sheet, rowNumber, 'Status', 'Needs reconciliation');
       setCell(sheet, rowNumber, 'RTO Player IDs', playerIds.join(','));
       setCell(sheet, rowNumber, 'Score Normalized', score);
       setCell(sheet, rowNumber, 'RTO Handicap Difference', handicap.difference);
@@ -792,7 +792,10 @@ function recordFromRow(row: readonly string[]): QueueRecord {
 }
 
 function queueStatus(value: string): QueueRecord['status'] {
-  if (value === 'Ready' || value === 'Submitted' || value === 'Failed' || value === 'Withdrawn') {
+  if (value === 'Ready') {
+    return 'Needs reconciliation';
+  }
+  if (value === 'Needs reconciliation' || value === 'Submitted' || value === 'Failed' || value === 'Withdrawn') {
     return value;
   }
   return 'Needs review';
