@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <base target="_top" />
+    <meta charset="UTF-8" />
+    <title>Match Entry Bridge</title>
+  </head>
+  <body>
+    <script>
+      (() => {
+        const channelId = <?!= channelJson ?>;
+        const targetOrigin = 'https://andrewparmet.github.io';
+        const channel = new MessageChannel();
+
+        channel.port1.onmessage = event => {
+          const request = event.data;
+          if (
+            !request ||
+            request.type !== 'sweet-spot-intake-request' ||
+            typeof request.id !== 'string' ||
+            !['submitMatch', 'undoSubmission'].includes(request.functionName)
+          ) {
+            return;
+          }
+
+          const runner = google.script.run
+            .withSuccessHandler(result => {
+              channel.port1.postMessage({ type: 'sweet-spot-intake-response', id: request.id, result });
+            })
+            .withFailureHandler(error => {
+              channel.port1.postMessage({
+                type: 'sweet-spot-intake-response',
+                id: request.id,
+                error: error && error.message ? error.message : 'The request failed.'
+              });
+            });
+          runner[request.functionName](request.payload);
+        };
+        channel.port1.start();
+
+        window.top.postMessage({ type: 'sweet-spot-intake-connect', channelId }, targetOrigin, [channel.port2]);
+        google.script.run
+          .withSuccessHandler(() => channel.port1.postMessage({ type: 'sweet-spot-intake-ready' }))
+          .withFailureHandler(error => {
+            channel.port1.postMessage({
+              type: 'sweet-spot-intake-unavailable',
+              error: error && error.message ? error.message : 'The submission service could not start.'
+            });
+          })
+          .warmUp();
+      })();
+    </script>
+  </body>
+</html>

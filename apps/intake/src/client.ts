@@ -41,11 +41,122 @@ interface AppsScriptRunner {
   undoSubmission(payload: UndoSubmissionRequest): void;
 }
 
-declare const google: {
-  readonly script: {
-    readonly run: AppsScriptRunner;
-  };
-};
+interface BridgeRequest {
+  readonly type: 'sweet-spot-intake-request';
+  readonly id: string;
+  readonly functionName: 'submitMatch' | 'undoSubmission';
+  readonly payload: MatchSubmissionRequest | UndoSubmissionRequest;
+}
+
+interface BridgeResponse {
+  readonly type: 'sweet-spot-intake-response';
+  readonly id: string;
+  readonly result?: unknown;
+  readonly error?: string;
+}
+
+const appsScriptRunner = (
+  globalThis as typeof globalThis & { readonly google?: { readonly script?: { readonly run?: AppsScriptRunner } } }
+).google?.script?.run;
+const bridgeUrl = (globalThis as typeof globalThis & { readonly SWEET_SPOT_INTAKE_BRIDGE_URL?: string })
+  .SWEET_SPOT_INTAKE_BRIDGE_URL;
+const bridgeConnection = bridgeUrl ? connectBridge(bridgeUrl) : undefined;
+const bridgeCalls = new Map<
+  string,
+  { readonly resolve: (result: unknown) => void; readonly reject: (error: Error) => void }
+>();
+
+function callServer<T>(
+  functionName: BridgeRequest['functionName'],
+  payload: BridgeRequest['payload'],
+  onSuccess: (result: T) => void,
+  onFailure: (error: Error) => void
+): void {
+  if (appsScriptRunner) {
+    const runner = appsScriptRunner.withSuccessHandler(onSuccess).withFailureHandler(onFailure);
+    if (functionName === 'submitMatch') {
+      runner.submitMatch(payload as MatchSubmissionRequest);
+    } else {
+      runner.undoSubmission(payload as UndoSubmissionRequest);
+    }
+    return;
+  }
+  if (!bridgeConnection) {
+    onFailure(new Error('The submission service is unavailable.'));
+    return;
+  }
+
+  const id = randomId();
+  bridgeCalls.set(id, {
+    resolve: result => onSuccess(result as T),
+    reject: onFailure
+  });
+  bridgeConnection
+    .then(port => {
+      const request: BridgeRequest = { type: 'sweet-spot-intake-request', id, functionName, payload };
+      port.postMessage(request);
+    })
+    .catch(error => {
+      bridgeCalls.delete(id);
+      onFailure(error instanceof Error ? error : new Error('The submission service could not start.'));
+    });
+}
+
+function connectBridge(url: string): Promise<MessagePort> {
+  const channelId = randomId();
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      window.removeEventListener('message', handleConnection);
+      reject(new Error('The submission service took too long to start.'));
+    }, 30_000);
+    const handleConnection = (event: MessageEvent): void => {
+      if (
+        !/^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/.test(event.origin) ||
+        event.data?.type !== 'sweet-spot-intake-connect' ||
+        event.data.channelId !== channelId ||
+        !event.ports[0]
+      ) {
+        return;
+      }
+      window.removeEventListener('message', handleConnection);
+      const port = event.ports[0];
+      port.onmessage = bridgeEvent => {
+        if (bridgeEvent.data?.type === 'sweet-spot-intake-ready') {
+          window.clearTimeout(timeout);
+          resolve(port);
+          return;
+        }
+        if (bridgeEvent.data?.type === 'sweet-spot-intake-unavailable') {
+          window.clearTimeout(timeout);
+          reject(new Error(bridgeEvent.data.error || 'The submission service could not start.'));
+          return;
+        }
+        const response = bridgeEvent.data as BridgeResponse;
+        if (response?.type !== 'sweet-spot-intake-response') {
+          return;
+        }
+        const call = bridgeCalls.get(response.id);
+        if (!call) {
+          return;
+        }
+        bridgeCalls.delete(response.id);
+        if (response.error) {
+          call.reject(new Error(response.error));
+        } else {
+          call.resolve(response.result);
+        }
+      };
+      port.start();
+    };
+    window.addEventListener('message', handleConnection);
+
+    const frame = document.createElement('iframe');
+    frame.title = 'Submission service';
+    frame.hidden = true;
+    frame.src = `${url}&channel=${encodeURIComponent(channelId)}`;
+    document.body.append(frame);
+  });
+}
 
 function requiredElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -332,7 +443,7 @@ form.addEventListener('submit', event => {
   setFormLocked(true);
   setSubmitButton('pending');
 
-  google.script.run.withSuccessHandler(showSuccess).withFailureHandler(showError).submitMatch(payload);
+  callServer<MatchSubmissionResponse>('submitMatch', payload, showSuccess, showError);
 });
 
 submitButton.addEventListener('click', () => {
@@ -341,10 +452,7 @@ submitButton.addEventListener('click', () => {
   }
   formMessage.hidden = true;
   setSubmitButton('pending');
-  google.script.run
-    .withSuccessHandler<UndoSubmissionResponse>(showUndoSuccess)
-    .withFailureHandler(showUndoError)
-    .undoSubmission(lastSubmission);
+  callServer<UndoSubmissionResponse>('undoSubmission', lastSubmission, showUndoSuccess, showUndoError);
 });
 
 restoreDraft();

@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsx tools/build.ts",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build",
-    "build:pages": "tsx tools/build-pages.ts",
+    "build:pages": "npm run build && tsx tools/build-pages.ts",
     "deploy:admin:staging": "tsx tools/publish.ts admin-staging",
     "deploy:admin:production": "tsx tools/publish.ts admin-production",
     "deploy:intake:production": "tsx tools/publish.ts intake-production",

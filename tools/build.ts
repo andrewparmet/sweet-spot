@@ -140,9 +140,14 @@ async function buildIntake(): Promise<void> {
   });
   const serverBundle = outputText(serverResult.outputFiles, '.js');
   const appsScriptWrappers = `
-function doGet() {
+function doGet(event) {
   ${SERVER_GLOBAL}.ensureSetup('${buildEnvironment}');
-  return ${SERVER_GLOBAL}.doGet();
+  const bridgeChannel = event && event.parameter && event.parameter.bridge === '1' ? event.parameter.channel : '';
+  return ${SERVER_GLOBAL}.doGet(bridgeChannel);
+}
+
+function warmUp() {
+  return true;
 }
 
 function submitMatch(payload) {
@@ -174,8 +179,9 @@ function setupStaging_() {
     write: false
   });
   const clientBundle = outputText(clientResult.outputFiles, '.js').replaceAll('</script', '<\\/script');
-  const [htmlTemplate, stylesheet, manifest] = await Promise.all([
+  const [htmlTemplate, bridgeTemplate, stylesheet, manifest] = await Promise.all([
     readFile(path.join(sourceDirectory, 'index.html'), 'utf8'),
+    readFile(path.join(sourceDirectory, 'bridge.html'), 'utf8'),
     readFile(path.join(sourceDirectory, 'styles.css'), 'utf8'),
     readFile(path.join(component.directory, 'appsscript.json'), 'utf8')
   ]);
@@ -191,6 +197,7 @@ function setupStaging_() {
 
   await Promise.all([
     writeFile(path.join(component.distDirectory, 'Index.html'), html),
+    writeFile(path.join(component.distDirectory, 'Bridge.html'), bridgeTemplate),
     writeFile(path.join(component.distDirectory, 'appsscript.json'), manifest)
   ]);
 }

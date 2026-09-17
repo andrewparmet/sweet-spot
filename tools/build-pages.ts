@@ -3,6 +3,7 @@ import path from 'node:path';
 import { appsScriptDeployments, repositoryRoot } from './components.ts';
 
 const outputDirectory = path.join(repositoryRoot, 'apps', 'pages', 'dist');
+const intakeHtmlPath = path.join(repositoryRoot, 'apps', 'intake', 'dist', 'Index.html');
 
 await rm(outputDirectory, { recursive: true, force: true });
 await Promise.all([
@@ -18,20 +19,18 @@ const [productionIntakeDeploymentId, productionAdminDeploymentId, stagingIntakeD
     deploymentId('intake-staging'),
     deploymentId('admin-staging')
   ]);
+const intakeHtml = await readFile(intakeHtmlPath, 'utf8');
 
 await Promise.all([
   writeFile(path.join(outputDirectory, '.nojekyll'), ''),
-  writeFile(
-    path.join(outputDirectory, 'index.html'),
-    framePage('Match Entry', webAppUrl(productionIntakeDeploymentId))
-  ),
+  writeFile(path.join(outputDirectory, 'index.html'), intakePage(intakeHtml, webAppUrl(productionIntakeDeploymentId))),
   writeFile(
     path.join(outputDirectory, 'admin', 'index.html'),
     framePage('Score Review', webAppUrl(productionAdminDeploymentId))
   ),
   writeFile(
     path.join(outputDirectory, 'staging', 'index.html'),
-    framePage('Match Entry', webAppUrl(stagingIntakeDeploymentId))
+    intakePage(intakeHtml, webAppUrl(stagingIntakeDeploymentId))
   ),
   writeFile(
     path.join(outputDirectory, 'staging', 'admin', 'index.html'),
@@ -76,4 +75,9 @@ function framePage(title: string, source: string): string {
   <body><iframe aria-label="${title}" src="${source}" allow="clipboard-write"></iframe></body>
 </html>
 `;
+}
+
+function intakePage(html: string, source: string): string {
+  const configuration = `<script>window.SWEET_SPOT_INTAKE_BRIDGE_URL = ${JSON.stringify(`${source}?bridge=1`)};</script>`;
+  return html.replace('</head>', `  ${configuration}\n  </head>`);
 }

@@ -34,7 +34,18 @@ const THROTTLE_SECONDS = 3;
 const GLOBAL_THROTTLE_LIMIT = 30;
 const GLOBAL_THROTTLE_SECONDS = 60;
 
-export function doGet(): GoogleAppsScript.HTML.HtmlOutput {
+export function doGet(bridgeChannel = ''): GoogleAppsScript.HTML.HtmlOutput {
+  if (bridgeChannel) {
+    if (!/^[a-zA-Z0-9-]{16,100}$/.test(bridgeChannel)) {
+      throw new Error('Invalid bridge channel.');
+    }
+    const template = HtmlService.createTemplateFromFile('Bridge');
+    template.channelJson = JSON.stringify(bridgeChannel);
+    return template
+      .evaluate()
+      .setTitle('Match Entry Bridge')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Match Entry')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)

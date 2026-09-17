@@ -45,7 +45,8 @@ files under `local-data/`, with one file representing each weekly Sheet tab. The
 
 The intake form enforces required match data in the browser and on the server. After submission, the receipt screen can
 withdraw the queue row and restore the form for correction. Withdrawn rows remain in the queue for audit purposes and are
-excluded from the admin inbox.
+excluded from the admin inbox. GitHub Pages serves the form directly and starts a hidden Apps Script bridge on page load. The
+bridge warms the Apps Script RPC connection while the player fills out the form, then handles submission and undo requests.
 
 ## Google deployments
 
@@ -79,7 +80,7 @@ project IDs and stable deployment IDs are checked in beside each component. Gene
 ## GitHub Pages
 
 The Pages workflow runs `npm run build:pages` and publishes `apps/pages/dist`. The build reads the stable Apps Script
-deployment IDs and generates these routes:
+deployment IDs, embeds the intake form, and generates these routes:
 
 - `/sweet-spot/staging/`, which hosts match entry
 - `/sweet-spot/staging/admin/`
@@ -87,7 +88,8 @@ deployment IDs and generates these routes:
 - `/sweet-spot/admin/`, which hosts production score review
 
 Pushing a relevant configuration or deployment ID change to `main` redeploys Pages. A missing deployment ID fails the Pages
-build instead of publishing a partial route tree.
+build instead of publishing a partial route tree. The admin routes frame their Apps Script applications. The intake routes
+render statically and eagerly connect to their environment's Apps Script deployment for server operations.
 
 The intake manifest declares that each web app runs as the project owner with anonymous access. Deployment IDs are stored
 independently under `apps/intake/`.
