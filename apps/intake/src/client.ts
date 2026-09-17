@@ -206,6 +206,12 @@ function showSuccess(result: MatchSubmissionResponse): void {
   };
   localStorage.removeItem(DRAFT_KEY);
   setUndoing(false);
+  window.requestAnimationFrame(() => {
+    window.scrollTo({
+      top: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight),
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    });
+  });
 }
 
 function setUndoing(undoing: boolean): void {
