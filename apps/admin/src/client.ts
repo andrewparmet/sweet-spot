@@ -13,7 +13,7 @@ interface DirectoryPlayer {
 
 type QueueView = 'review' | 'history';
 
-const DIRECTORY_CACHE_PREFIX = 'sweet-spot-rto-directory-v1';
+const DIRECTORY_CACHE_PREFIX = 'sweet-spot-rto-directory-v2';
 const SESSION_TOKEN_KEY = 'sweet-spot-rto-token';
 const loginShell = requiredElement<HTMLElement>('login-shell');
 const adminShell = requiredElement<HTMLElement>('admin-shell');
@@ -294,6 +294,9 @@ async function loadDirectory(record: QueueRecord): Promise<DirectoryPlayer[]> {
   );
   if (!body.players) {
     throw new Error(body.message || 'The player directory could not be loaded.');
+  }
+  if (body.players.length === 0) {
+    throw new Error('No RTO players matched the submitted names.');
   }
   sessionStorage.setItem(directoryCacheKey(record), JSON.stringify(body.players));
   return body.players;

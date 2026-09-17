@@ -204,14 +204,27 @@ function directoryPlayer(value: unknown): DirectoryPlayer | undefined {
     return undefined;
   }
   const id = value.playerID ?? value.playerId ?? value.PlayerID;
-  const name =
-    readString(value, 'nameFirstLastTag', 'NameFirstLastTag', 'nameFirstLast', 'NameFirstLast') ||
-    [readString(value, 'nameFirst', 'NameFirst'), readString(value, 'nameLast', 'NameLast')].filter(Boolean).join(' ');
-  const handicap = Number(value.hcap ?? value.Hcap);
+  const name = cleanPlayerName(
+    readString(
+      value,
+      'nameFirstLastTagHand',
+      'NameFirstLastTagHand',
+      'nameFirstLastTag',
+      'NameFirstLastTag',
+      'nameFirstLast',
+      'NameFirstLast'
+    ) ||
+      [readString(value, 'nameFirst', 'NameFirst'), readString(value, 'nameLast', 'NameLast')].filter(Boolean).join(' ')
+  );
+  const handicap = Number(value.hcap ?? value.Hcap ?? value.HCap);
   if ((typeof id !== 'string' && typeof id !== 'number') || !name || !Number.isFinite(handicap)) {
     return undefined;
   }
   return { id: String(id), name, handicap };
+}
+
+function cleanPlayerName(value: string): string {
+  return value.replace(/\s*\((?:Singles|Doubles)(?: W\/Hand)?\)\s*$/i, '').trim();
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
