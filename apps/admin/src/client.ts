@@ -1,5 +1,5 @@
 import type { QueueRecord } from '../../../packages/shared/src/queue.ts';
-import { normalizedPlayerName, playerMatchScore } from './player-search.ts';
+import { normalizedPlayerName, reasonablePlayerMatches } from './player-search.ts';
 
 interface AdminQueueItem {
   readonly tabName: string;
@@ -45,6 +45,7 @@ const dialogActions = requiredElement<HTMLElement>('dialog-actions');
 let allItems: AdminQueueItem[] = [];
 let activeView: QueueView = 'review';
 let selectedItem: AdminQueueItem | undefined;
+let submitting = false;
 const directoryLoads = new Map<QueueRecord['matchType'], Promise<DirectoryPlayer[]>>();
 
 interface GoogleScriptRunner {
@@ -361,11 +362,17 @@ function renderPlayerOptions(
   directory: readonly DirectoryPlayer[]
 ): void {
   select.replaceChildren();
-  const ordered = [...directory].sort((left, right) => {
-    const scoreDifference = playerMatchScore(originalName, left.name) - playerMatchScore(originalName, right.name);
-    return scoreDifference || left.name.localeCompare(right.name);
-  });
+  const ordered = reasonablePlayerMatches(originalName, directory);
   const bestMatchId = ordered[0]?.id;
+  if (!bestMatchId) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No Boston match. Use manual search.';
+    option.selected = true;
+    option.disabled = true;
+    select.append(option);
+    return;
+  }
   for (const [groupLabel, players] of [
     ['Boston players', ordered.filter(player => player.isBoston)],
     ['Other players', ordered.filter(player => !player.isBoston)]
@@ -386,6 +393,11 @@ function renderPlayerOptions(
   }
 }
 
+function updateSubmitAvailability(): void {
+  const selects = [...playerMatches.querySelectorAll<HTMLSelectElement>('select')];
+  demoSubmitButton.disabled = submitting || selects.length === 0 || selects.some(select => !select.value);
+}
+
 function playerMatchField(
   originalName: string,
   matchType: QueueRecord['matchType'],
@@ -403,27 +415,61 @@ function playerMatchField(
   const expandButton = document.createElement('button');
   expandButton.className = 'expand-search';
   expandButton.type = 'button';
-  expandButton.textContent = 'Expand search';
+  expandButton.textContent = 'Manual search';
   heading.append(label, expandButton);
   const select = document.createElement('select');
   select.id = selectId;
   renderPlayerOptions(select, originalName, bostonPlayers);
-  expandButton.addEventListener('click', async () => {
-    expandButton.disabled = true;
-    expandButton.textContent = 'Searching…';
-    dialogError.hidden = true;
-    try {
-      const expandedPlayers = await expandPlayerSearch(matchType, originalName);
-      renderPlayerOptions(select, originalName, mergePlayers(expandedPlayers, [...bostonPlayers]));
-      expandButton.textContent = 'Expanded';
-    } catch (error) {
-      expandButton.disabled = false;
-      expandButton.textContent = 'Expand search';
-      dialogError.textContent = error instanceof Error ? error.message : 'The wider directory could not be searched.';
-      dialogError.hidden = false;
+  const manualSearch = document.createElement('form');
+  manualSearch.className = 'manual-search';
+  manualSearch.hidden = true;
+  const manualInput = document.createElement('input');
+  manualInput.type = 'search';
+  manualInput.value = originalName;
+  manualInput.autocomplete = 'off';
+  manualInput.setAttribute('aria-label', `Search RTO directory for ${originalName}`);
+  const searchButton = document.createElement('button');
+  searchButton.className = 'secondary-button';
+  searchButton.type = 'submit';
+  searchButton.textContent = 'Search';
+  manualSearch.append(manualInput, searchButton);
+  let fieldPlayers = [...bostonPlayers];
+  expandButton.addEventListener('click', () => {
+    manualSearch.hidden = !manualSearch.hidden;
+    expandButton.setAttribute('aria-expanded', String(!manualSearch.hidden));
+    if (!manualSearch.hidden) {
+      manualInput.focus();
+      manualInput.select();
     }
   });
-  field.append(heading, select);
+  manualSearch.addEventListener('submit', async event => {
+    event.preventDefault();
+    const query = manualInput.value.trim();
+    if (!query) {
+      dialogError.textContent = 'Enter a player name to search.';
+      dialogError.hidden = false;
+      manualInput.focus();
+      return;
+    }
+    manualInput.disabled = true;
+    searchButton.disabled = true;
+    searchButton.textContent = 'Searching…';
+    dialogError.hidden = true;
+    try {
+      const expandedPlayers = await expandPlayerSearch(matchType, query);
+      fieldPlayers = mergePlayers(expandedPlayers, fieldPlayers);
+      renderPlayerOptions(select, query, fieldPlayers);
+      updateSubmitAvailability();
+    } catch (error) {
+      dialogError.textContent = error instanceof Error ? error.message : 'The wider directory could not be searched.';
+      dialogError.hidden = false;
+    } finally {
+      manualInput.disabled = false;
+      searchButton.disabled = false;
+      searchButton.textContent = 'Search';
+    }
+  });
+  field.append(heading, select, manualSearch);
   return field;
 }
 
@@ -443,6 +489,7 @@ async function openReview(item: AdminQueueItem): Promise<void> {
     playerMatches.replaceChildren(
       ...names.map((name, index) => playerMatchField(name, record.matchType, bostonPlayers, index))
     );
+    updateSubmitAvailability();
     dialogLoading.hidden = true;
     dialogContent.hidden = false;
     dialogActions.hidden = false;
@@ -454,7 +501,7 @@ async function openReview(item: AdminQueueItem): Promise<void> {
 }
 
 function closeReview(): void {
-  if (!demoSubmitButton.disabled) {
+  if (!submitting) {
     reviewDialog.close();
     selectedItem = undefined;
   }
@@ -465,7 +512,13 @@ async function demoSubmit(): Promise<void> {
     return;
   }
   const playerIds = Array.from(playerMatches.querySelectorAll<HTMLSelectElement>('select'), select => select.value);
-  demoSubmitButton.disabled = true;
+  if (playerIds.some(playerId => !playerId)) {
+    dialogError.textContent = 'Match every entered player before submitting.';
+    dialogError.hidden = false;
+    return;
+  }
+  submitting = true;
+  updateSubmitAvailability();
   cancelDialogButton.disabled = true;
   closeDialogButton.disabled = true;
   dialogError.hidden = true;
@@ -489,7 +542,8 @@ async function demoSubmit(): Promise<void> {
     dialogError.textContent = error instanceof Error ? error.message : 'The demo submission failed.';
     dialogError.hidden = false;
   } finally {
-    demoSubmitButton.disabled = false;
+    submitting = false;
+    updateSubmitAvailability();
     cancelDialogButton.disabled = false;
     closeDialogButton.disabled = false;
   }
@@ -570,7 +624,7 @@ demoSubmitButton.addEventListener('click', () => void demoSubmit());
 loginForm.addEventListener('submit', event => void login(event));
 logoutButton.addEventListener('click', signOut);
 reviewDialog.addEventListener('cancel', event => {
-  if (demoSubmitButton.disabled) {
+  if (submitting) {
     event.preventDefault();
   }
 });

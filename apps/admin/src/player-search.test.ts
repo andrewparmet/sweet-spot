@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { playerMatchScore } from './player-search.ts';
+import { playerMatchScore, reasonablePlayerMatches } from './player-search.ts';
 
 describe('playerMatchScore', () => {
   it('prefers an exact full name', () => {
@@ -29,5 +29,31 @@ describe('playerMatchScore', () => {
 
   it('ranks a minor typo above an unrelated name', () => {
     expect(playerMatchScore('Joe Col', 'Joe Cool')).toBeLessThan(playerMatchScore('Joe Col', 'John Cole'));
+  });
+});
+
+describe('reasonablePlayerMatches', () => {
+  const players = [
+    { name: 'George Sawrey-Cookson' },
+    { name: 'Seb Sawrey-Cookson' },
+    { name: 'Hugh Cook' },
+    { name: 'Andrew Parmet' }
+  ];
+
+  it('keeps strong fuzzy matches and removes unrelated players', () => {
+    expect(reasonablePlayerMatches('G Cookson', players)).toEqual([{ name: 'George Sawrey-Cookson' }]);
+  });
+
+  it('allows a close typo', () => {
+    expect(reasonablePlayerMatches('Goerge Sawrey Cookson', players)[0]).toEqual({ name: 'George Sawrey-Cookson' });
+  });
+
+  it('returns no candidates for an unrelated name', () => {
+    expect(reasonablePlayerMatches('Peppermint Patty', players)).toEqual([]);
+  });
+
+  it('caps broad matches', () => {
+    const andrews = Array.from({ length: 20 }, (_, index) => ({ name: `Andrew Player ${index}` }));
+    expect(reasonablePlayerMatches('Andrew', andrews)).toHaveLength(12);
   });
 });

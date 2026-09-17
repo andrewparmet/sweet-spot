@@ -510,6 +510,27 @@ dialog::backdrop {
   background: white;
 }
 
+.manual-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
+.manual-search input {
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  color: var(--ink);
+  background: white;
+}
+
+.manual-search input:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .demo-note {
   margin: 1rem 0 0;
   color: var(--muted);

@@ -46,6 +46,22 @@ export function playerMatchScore(input: string, candidate: string): number {
   return 2 + normalizedDistance(normalizedInput, normalizedCandidate);
 }
 
+export function reasonablePlayerMatches<T extends { readonly name: string }>(
+  input: string,
+  candidates: readonly T[],
+  limit = 12
+): T[] {
+  const ranked = candidates
+    .map(candidate => ({ candidate, score: playerMatchScore(input, candidate.name) }))
+    .sort((left, right) => left.score - right.score || left.candidate.name.localeCompare(right.candidate.name));
+  const bestScore = ranked[0]?.score ?? Number.POSITIVE_INFINITY;
+  const maximumScore = Math.min(2.35, Math.max(1, bestScore + 0.5));
+  return ranked
+    .filter(({ score }) => score <= maximumScore)
+    .slice(0, limit)
+    .map(({ candidate }) => candidate);
+}
+
 function normalizedDistance(left: string, right: string): number {
   const longestLength = Math.max(left.length, right.length);
   return longestLength === 0 ? 0 : editDistance(left, right) / longestLength;
