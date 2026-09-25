@@ -274,10 +274,15 @@ function restoreDraft(): void {
   }
 }
 
-function setSubmitButton(mode: 'pending' | 'submit' | 'undo'): void {
+function setSubmitButton(mode: 'submit' | 'submitting' | 'undo' | 'undoing'): void {
   submitButton.type = mode === 'submit' ? 'submit' : 'button';
-  submitButton.disabled = mode === 'pending';
-  buttonLabel.textContent = mode === 'submit' ? 'Submit score' : 'Undo';
+  submitButton.disabled = mode === 'submitting' || mode === 'undoing';
+  buttonLabel.textContent = {
+    submit: 'Submit score',
+    submitting: 'Submitting…',
+    undo: 'Undo',
+    undoing: 'Undoing…'
+  }[mode];
 }
 
 function setFormLocked(locked: boolean): void {
@@ -441,7 +446,7 @@ form.addEventListener('submit', event => {
     clientId: getClientId()
   };
   setFormLocked(true);
-  setSubmitButton('pending');
+  setSubmitButton('submitting');
 
   callServer<MatchSubmissionResponse>('submitMatch', payload, showSuccess, showError);
 });
@@ -451,7 +456,7 @@ submitButton.addEventListener('click', () => {
     return;
   }
   formMessage.hidden = true;
-  setSubmitButton('pending');
+  setSubmitButton('undoing');
   callServer<UndoSubmissionResponse>('undoSubmission', lastSubmission, showUndoSuccess, showUndoError);
 });
 
