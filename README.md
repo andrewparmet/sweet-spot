@@ -1,7 +1,7 @@
 # sweet-spot
 
-Sweet Spot is a mobile match-entry queue for court tennis scores. Every component lives in this repository and is built,
-tested, and published through the root scripts.
+Sweet Spot is a mobile match-entry queue for court tennis scores. Players submit scores from their phones, and a Boston
+match administrator reviews each one and submits it to RTO.
 
 ## Screenshots
 
@@ -19,94 +19,73 @@ tested, and published through the root scripts.
 
 ## Components
 
-- `apps/intake`: public mobile Apps Script application for player submissions
-- `apps/pages`: generated full-viewport GitHub Pages routes
-- `apps/admin`: private score-review application
-- `packages/shared`: request, response, and queue types shared by every component
-- `tools`: TypeScript build and publishing commands
+- `apps/intake`: public match-entry form, served from GitHub Pages and backed by Apps Script
+- `apps/admin`: private Score Review application on Apps Script
+- `apps/pages`: generated GitHub Pages routes
+- `packages/shared`: request, response, and queue types
+- `tools`: build, local development, and publishing commands
 
-The admin application requires an RTO account with the Boston `ADM-MATCH` role. It validates the RTO session before reading
-the queue, keeps the token in browser `sessionStorage`, and searches the RTO player directory when a score is reviewed.
-Production submits approved matches to RTO; staging writes fake RTO match IDs.
+Both clients use Preact. Each screen keeps its state in a view model (`*-model.ts`) that is unit tested without a browser.
 
-## Commands
+## Local development
 
 ```shell
 npm install
-npm run check
-npm run format
-npm run seed:local
-npm run inspect:local
-npm run dev:intake
-npm run dev:admin
-npm run build:pages
+npm run check         # format, lint, typecheck, test, build
+npm run seed:local    # write dummy queue data to local-data/
+npm run inspect:local # print the local queue
+npm run dev:intake    # http://127.0.0.1:4173
+npm run dev:admin     # http://127.0.0.1:4174
 ```
 
-The local intake application is served at <http://127.0.0.1:4173>, and the local admin application is served at
-<http://127.0.0.1:4174>. Any non-empty credentials enter the local-only admin demo. Submissions are written to ignored JSON
-files under `local-data/`, with one file representing each weekly Sheet tab. The admin demo directory is cached in browser
-`sessionStorage` and cleared when the tab closes.
+The local servers use JSON files in `local-data/` in place of the queue spreadsheet, one file per weekly tab. The local admin
+accepts any credentials and uses a fake RTO directory, and submitting writes a fake RTO match ID.
 
-The intake form enforces required match data in the browser and on the server. After submission, the receipt screen can
-withdraw the queue row and restore the form for correction. Withdrawn rows remain in the queue for audit purposes and are
-excluded from the admin inbox. GitHub Pages serves the form directly and starts a hidden Apps Script bridge on page load. The
-bridge warms the Apps Script RPC connection while the player fills out the form, then handles submission and undo requests.
+## Queue
 
-## Google deployments
+Submissions go to ISO-week tabs such as `2026-W38` in a queue spreadsheet, one spreadsheet per environment. A player can undo
+a submission right after sending it, which marks the row `Withdrawn`.
 
-Staging and production use separate Apps Script projects, deployments, and queue spreadsheets:
+Score Review shows every score that is neither `Submitted` nor `Withdrawn` under **Needs review**, whatever its week, and
+the rest under **History**, one week per page. It keeps an index of which tabs hold each kind of score in its script
+properties, so a load reads only the tabs it needs. The index is rebuilt from every tab once a day.
+
+## Deployment
 
 ```shell
 npx clasp login
 npm run deploy:intake:staging
-npm run deploy:intake:production
 npm run deploy:admin:staging
+npm run deploy:intake:production
 npm run deploy:admin:production
 ```
 
-Each deploy command reconciles its environment: it creates a missing Apps Script project, runs all checks, pushes generated
-artifacts, creates or updates the stable deployment, provisions the queue spreadsheet on first load, and verifies the live
-page. The checked-in `.clasp.<environment>.json` and `.deployment.<environment>-id` files bind each environment to its Google
-resources.
+Each command runs `npm run check`, builds, pushes to its Apps Script project, updates its stable deployment, and checks that
+the live page responds. The checked-in `.clasp.<environment>.json` and `.deployment.<environment>-id` files bind each
+environment to its Google resources, and each admin environment reads its spreadsheet ID and RTO submission mode from its
+JSON file. Staging writes fake RTO match IDs instead of submitting to RTO.
 
-Google's deployment API does not apply a web app's access setting. The first deploy for each environment therefore requires
-one manual step in the Apps Script editor: open **Deploy > Manage deployments**, edit the generated deployment, set **Who has
-access** to **Anyone**, deploy, and accept the authorization prompt. Later deploys update the same deployment ID and need no
-manual work. If verification finds the deployment owner-only, the command prints the editor URL and these instructions.
+A new environment needs one manual step, because Google's API does not set web app access. In the Apps Script editor, open
+**Deploy > Manage deployments**, edit the deployment, set **Who has access** to **Anyone**, and accept the authorization
+prompt. The deploy command prints these instructions if it finds an owner-only deployment.
 
-The intake setup function creates the private queue spreadsheet and logs its URL. Scores are grouped into ISO-week tabs such as
-`2026-W38`. The review application will scan every weekly tab and present one inbox containing every row that is neither
-`Submitted` nor `Withdrawn`.
+Pushing to `main` rebuilds GitHub Pages when intake, shared code, build tools, or a deployment ID changes. The routes are:
 
-Each admin deployment reads its queue spreadsheet ID and RTO submission mode from its environment JSON file. Apps Script
-project IDs and stable deployment IDs are checked in beside each component. Generated build artifacts remain ignored.
+| Route                        | Serves                           |
+| ---------------------------- | -------------------------------- |
+| `/sweet-spot/`               | Production match entry           |
+| `/sweet-spot/admin/`         | Production Score Review (framed) |
+| `/sweet-spot/staging/`       | Staging match entry              |
+| `/sweet-spot/staging/admin/` | Staging Score Review (framed)    |
 
-## GitHub Pages
+The match-entry page opens a hidden Apps Script bridge as it loads, and the bridge handles submission and undo.
 
-The Pages workflow runs `npm run build:pages` and publishes `apps/pages/dist`. The build reads the stable Apps Script
-deployment IDs, embeds the intake form, and generates these routes:
+## Security
 
-- `/sweet-spot/staging/`, which hosts match entry
-- `/sweet-spot/staging/admin/`
-- `/sweet-spot/`, which hosts production match entry
-- `/sweet-spot/admin/`, which hosts production score review
-
-Pushing a relevant configuration or deployment ID change to `main` redeploys Pages. A missing deployment ID fails the Pages
-build instead of publishing a partial route tree. The admin routes frame their Apps Script applications. The intake routes
-render statically and eagerly connect to their environment's Apps Script deployment for server operations.
-
-The intake manifest declares that each web app runs as the project owner with anonymous access. Deployment IDs are stored
-independently under `apps/intake/`.
-
-The manifest pins the intake application's OAuth access to Google Sheets. The current `SpreadsheetApp` implementation can
-read and write every spreadsheet available to the deploying account, although the application stores and opens only its own
-queue spreadsheet ID. It has no Gmail, Calendar, Contacts, general Drive-file, or RTO access. Restricting access to only the
-queue file requires replacing `SpreadsheetApp` with the Sheets API and its `drive.file` scope.
-
-## RTO administrator sessions
-
-The private review application authenticates through its Apps Script server. The server sends the credentials to RTO over
-HTTPS, validates the returned token, and requires the Boston match-administrator role. It discards the password after login
-and returns the RTO JWT to browser `sessionStorage`. Each protected server operation revalidates the token with RTO. Closing
-the tab or choosing sign out clears the token. Credentials and tokens are never written to Sheets, Apps Script properties,
-logs, or `localStorage`.
+- Score Review requires an RTO account with the Boston `ADM-MATCH` role. The Apps Script server sends credentials to RTO,
+  discards the password, and returns the RTO token to browser `sessionStorage`. Signing out or closing the tab clears it.
+- Every server request checks the token's expiry and role. A successful RTO validation is cached for five minutes, keyed by
+  a hash of the token. Tokens and passwords are never written to Sheets, script properties, logs, or `localStorage`.
+- The intake app runs as the project owner with anonymous access. Its OAuth scope covers Google Sheets only, and it opens
+  only its own queue spreadsheet. `SpreadsheetApp` could still reach any spreadsheet the owner can; limiting it to one file
+  would require the Sheets API with the `drive.file` scope.
