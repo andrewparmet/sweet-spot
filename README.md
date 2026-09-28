@@ -9,9 +9,13 @@ tested, and published through the root scripts.
 | ------------------------------------------------------------ | ------------------------------------------------------------------ |
 | ![Mobile match-entry form](docs/screenshots/match-entry.png) | ![Score Review sign-in](docs/screenshots/score-review-sign-in.png) |
 
-| Needs review                                                       | History                                                                |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| ![Scores awaiting review](docs/screenshots/score-review-queue.png) | ![Paged submission history](docs/screenshots/score-review-history.png) |
+| Needs review                                                       | Review score                                                     |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| ![Scores awaiting review](docs/screenshots/score-review-queue.png) | ![Score review dialog](docs/screenshots/score-review-dialog.png) |
+
+| History                                                                |
+| ---------------------------------------------------------------------- |
+| ![Paged submission history](docs/screenshots/score-review-history.png) |
 
 ## Components
 
