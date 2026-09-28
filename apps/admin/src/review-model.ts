@@ -202,6 +202,7 @@ export function createReviewModel(dependencies: ReviewDependencies) {
     try {
       await dependencies.submitReviewedMatch({
         submissionId: form.item.record.submissionId,
+        tabName: form.item.tabName,
         players,
         score: form.score.trim()
       });

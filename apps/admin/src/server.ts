@@ -1,6 +1,14 @@
 import { QUEUE_HEADERS, type QueueRecord } from '../../../packages/shared/src/queue.ts';
 import { isValidScore, normalizeScore } from '../../../packages/shared/src/match.ts';
 import { directorySearchTerms } from './player-search.ts';
+import {
+  loadQueuePage,
+  parseQueueIndex,
+  withHistoryTab,
+  type QueueIndex,
+  type QueuePage,
+  type QueueView
+} from './queue-index.ts';
 import { resolvePlayedHandicapDifference } from './rto-match.ts';
 
 const RTO_API = 'https://www.realtennisonline.com/v2/api';
@@ -10,19 +18,8 @@ const WEEK_SHEET_NAME_PATTERN = /^\d{4}-W\d{2}$/;
 const LOGIN_RATE_LIMIT = 10;
 const TOKEN_VALIDATION_RATE_LIMIT = 120;
 const RATE_LIMIT_SECONDS = 60;
-type QueueView = 'review' | 'history';
-
-interface AdminQueueItem {
-  readonly tabName: string;
-  readonly record: QueueRecord;
-}
-
-interface QueuePage {
-  readonly items: AdminQueueItem[];
-  readonly page: number;
-  readonly hasNext: boolean;
-  readonly week?: string;
-}
+const VALIDATED_SESSION_CACHE_SECONDS = 300;
+const QUEUE_INDEX_PROPERTY_PREFIX = 'SWEET_SPOT_QUEUE_INDEX:';
 
 class RtoMatchSaveError extends Error {
   constructor(
@@ -46,6 +43,7 @@ interface ReviewedPlayer {
 
 interface ReviewedSubmissionRequest {
   readonly submissionId: string;
+  readonly tabName: string;
   readonly players: ReviewedPlayer[];
   readonly score: string;
 }
@@ -132,42 +130,21 @@ export function adminLogin(payload: unknown): { readonly token: string } {
 export function loadAdminQueue(token: unknown, spreadsheetId: string, request: unknown): QueuePage {
   authorize(requiredString(token, 'RTO session'));
   const { view, page } = validateQueuePageRequest(request);
-  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
-  const weeks = spreadsheet
-    .getSheets()
-    .filter(sheet => WEEK_SHEET_NAME_PATTERN.test(sheet.getName()))
-    .map(sheet => ({
-      tabName: sheet.getName(),
-      items: recordsFromSheet(sheet).map(record => ({ tabName: sheet.getName(), record }))
-    }));
-  return paginateQueueWeeks(weeks, view, page);
-}
-
-export function paginateQueueWeeks(
-  weeks: readonly { readonly tabName: string; readonly items: readonly AdminQueueItem[] }[],
-  view: QueueView,
-  page: number
-): QueuePage {
-  if (view === 'review') {
-    const items = weeks
-      .flatMap(week => week.items)
-      .filter(item => !isHistoryRecord(item.record))
-      .sort((left, right) => right.record.submittedAt.localeCompare(left.record.submittedAt));
-    return { items, page: 0, hasNext: false };
-  }
-  const historyWeeks = weeks
-    .map(week => ({ ...week, items: week.items.filter(item => isHistoryRecord(item.record)) }))
-    .filter(week => week.items.length > 0)
-    .sort((left, right) => right.tabName.localeCompare(left.tabName));
-  const selectedWeek = historyWeeks[page];
-  return {
-    items: selectedWeek
-      ? [...selectedWeek.items].sort((left, right) => right.record.submittedAt.localeCompare(left.record.submittedAt))
-      : [],
+  const sheets = new Map(
+    SpreadsheetApp.openById(spreadsheetId)
+      .getSheets()
+      .filter(sheet => WEEK_SHEET_NAME_PATTERN.test(sheet.getName()))
+      .map(sheet => [sheet.getName(), sheet])
+  );
+  const result = loadQueuePage(
+    { names: [...sheets.keys()], read: tabName => (sheets.has(tabName) ? recordsFromSheet(sheets.get(tabName)!) : []) },
+    readQueueIndex(spreadsheetId),
+    view,
     page,
-    hasNext: historyWeeks.length > page + 1,
-    ...(selectedWeek ? { week: selectedWeek.tabName } : {})
-  };
+    Date.now()
+  );
+  writeQueueIndex(spreadsheetId, result.index);
+  return result.page;
 }
 
 export function loadPlayerDirectory(
@@ -246,123 +223,121 @@ export function submitReviewedMatch(
   const lock = LockService.getScriptLock();
   lock.waitLock(10_000);
   try {
-    for (const sheet of spreadsheet.getSheets()) {
-      if (!WEEK_SHEET_NAME_PATTERN.test(sheet.getName()) || sheet.getLastRow() < 2) {
-        continue;
-      }
-      const submissionIds = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues();
-      const rowOffset = submissionIds.findIndex(([submissionId]) => submissionId === request.submissionId);
-      if (rowOffset < 0) {
-        continue;
-      }
-      const rowNumber = rowOffset + 2;
-      const record = recordFromRow(sheet.getRange(rowNumber, 1, 1, QUEUE_HEADERS.length).getDisplayValues()[0] ?? []);
-      const expectedPlayerCount = record.matchType === 'D' ? 4 : 2;
-      if (request.players.length !== expectedPlayerCount) {
-        throw new Error(`Choose ${expectedPlayerCount} RTO players for this match.`);
-      }
-      if (record.status === 'Submitted' || record.status === 'Withdrawn') {
-        throw new Error('That submission is no longer available for review.');
-      }
-      if (liveRtoSubmission && record.status === 'Needs reconciliation') {
-        throw new Error('This submission may already have reached RTO and must be reconciled before retrying.');
-      }
-      const timestamp = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
-      const playerIds = request.players.map(player => String(player.id));
-      const score = normalizeScore(request.score);
-      if (!liveRtoSubmission) {
-        setCell(sheet, rowNumber, 'Status', 'Submitted');
-        setCell(sheet, rowNumber, 'RTO Player IDs', playerIds.join(','));
-        setCell(sheet, rowNumber, 'Score Normalized', score);
-        setCell(sheet, rowNumber, 'RTO Match ID', `demo-${Date.now()}`);
-        setCell(sheet, rowNumber, 'Updated At', timestamp);
-        auditLog('match_submission', {
-          environment: 'staging',
-          outcome: 'submitted',
-          submissionId: request.submissionId,
-          userId: numericUserId(claims),
-          playerIds
-        });
-        return { submitted: true };
-      }
-
-      let handicap: ResolvedHandicap;
-      try {
-        handicap = resolveHandicap(sessionToken, record, request.players);
-      } catch (error) {
-        setCell(sheet, rowNumber, 'Status', 'Failed');
-        setCell(sheet, rowNumber, 'Last Error', safeErrorMessage(error));
-        setCell(sheet, rowNumber, 'Updated At', timestamp);
-        auditLog(
-          'match_submission',
-          {
-            environment: 'production',
-            outcome: 'handicap_failed',
-            submissionId: request.submissionId,
-            userId: numericUserId(claims),
-            playerIds,
-            error: safeErrorMessage(error)
-          },
-          'warning'
-        );
-        throw error;
-      }
-      setCell(sheet, rowNumber, 'Status', 'Needs reconciliation');
+    const sheet = spreadsheet.getSheetByName(request.tabName);
+    const submissionIds =
+      sheet && sheet.getLastRow() >= 2 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues() : [];
+    const rowOffset = submissionIds.findIndex(([submissionId]) => submissionId === request.submissionId);
+    if (!sheet || rowOffset < 0) {
+      throw new Error('That submission could not be found.');
+    }
+    const rowNumber = rowOffset + 2;
+    const record = recordFromRow(sheet.getRange(rowNumber, 1, 1, QUEUE_HEADERS.length).getDisplayValues()[0] ?? []);
+    const expectedPlayerCount = record.matchType === 'D' ? 4 : 2;
+    if (request.players.length !== expectedPlayerCount) {
+      throw new Error(`Choose ${expectedPlayerCount} RTO players for this match.`);
+    }
+    if (record.status === 'Submitted' || record.status === 'Withdrawn') {
+      throw new Error('That submission is no longer available for review.');
+    }
+    if (liveRtoSubmission && record.status === 'Needs reconciliation') {
+      throw new Error('This submission may already have reached RTO and must be reconciled before retrying.');
+    }
+    const timestamp = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+    const playerIds = request.players.map(player => String(player.id));
+    const score = normalizeScore(request.score);
+    if (!liveRtoSubmission) {
+      setCell(sheet, rowNumber, 'Status', 'Submitted');
+      recordHistoryTab(spreadsheetId, request.tabName);
       setCell(sheet, rowNumber, 'RTO Player IDs', playerIds.join(','));
       setCell(sheet, rowNumber, 'Score Normalized', score);
-      setCell(sheet, rowNumber, 'RTO Handicap Difference', handicap.difference);
-      setCell(sheet, rowNumber, 'Last Error', '');
+      setCell(sheet, rowNumber, 'RTO Match ID', `demo-${Date.now()}`);
       setCell(sheet, rowNumber, 'Updated At', timestamp);
-      SpreadsheetApp.flush();
       auditLog('match_submission', {
-        environment: 'production',
-        outcome: 'started',
+        environment: 'staging',
+        outcome: 'submitted',
         submissionId: request.submissionId,
         userId: numericUserId(claims),
         playerIds
       });
-
-      let matchId: number;
-      try {
-        matchId = saveRtoMatch(sessionToken, claims, record, request.players, score, handicap, tournamentWeightCode);
-      } catch (error) {
-        if (error instanceof RtoMatchSaveError && error.rejected) {
-          setCell(sheet, rowNumber, 'Status', 'Failed');
-        }
-        setCell(sheet, rowNumber, 'Last Error', safeErrorMessage(error));
-        setCell(sheet, rowNumber, 'Updated At', timestamp);
-        auditLog(
-          'match_submission',
-          {
-            environment: 'production',
-            outcome: error instanceof RtoMatchSaveError && error.rejected ? 'rejected' : 'unknown',
-            submissionId: request.submissionId,
-            userId: numericUserId(claims),
-            playerIds,
-            httpStatus: error instanceof RtoMatchSaveError ? error.status : undefined,
-            error: safeErrorMessage(error)
-          },
-          'warning'
-        );
-        throw error;
-      }
-      setCell(sheet, rowNumber, 'RTO Match ID', String(matchId));
-      setCell(sheet, rowNumber, 'Status', 'Submitted');
-      setCell(sheet, rowNumber, 'Updated At', timestamp);
-      auditLog('match_submission', {
-        environment: 'production',
-        outcome: 'submitted',
-        submissionId: request.submissionId,
-        userId: numericUserId(claims),
-        playerIds,
-        matchId
-      });
       return { submitted: true };
     }
+
+    let handicap: ResolvedHandicap;
+    try {
+      handicap = resolveHandicap(sessionToken, record, request.players);
+    } catch (error) {
+      setCell(sheet, rowNumber, 'Status', 'Failed');
+      setCell(sheet, rowNumber, 'Last Error', safeErrorMessage(error));
+      setCell(sheet, rowNumber, 'Updated At', timestamp);
+      auditLog(
+        'match_submission',
+        {
+          environment: 'production',
+          outcome: 'handicap_failed',
+          submissionId: request.submissionId,
+          userId: numericUserId(claims),
+          playerIds,
+          error: safeErrorMessage(error)
+        },
+        'warning'
+      );
+      throw error;
+    }
+    setCell(sheet, rowNumber, 'Status', 'Needs reconciliation');
+    setCell(sheet, rowNumber, 'RTO Player IDs', playerIds.join(','));
+    setCell(sheet, rowNumber, 'Score Normalized', score);
+    setCell(sheet, rowNumber, 'RTO Handicap Difference', handicap.difference);
+    setCell(sheet, rowNumber, 'Last Error', '');
+    setCell(sheet, rowNumber, 'Updated At', timestamp);
+    SpreadsheetApp.flush();
+    auditLog('match_submission', {
+      environment: 'production',
+      outcome: 'started',
+      submissionId: request.submissionId,
+      userId: numericUserId(claims),
+      playerIds
+    });
+
+    let matchId: number;
+    try {
+      matchId = saveRtoMatch(sessionToken, claims, record, request.players, score, handicap, tournamentWeightCode);
+    } catch (error) {
+      if (error instanceof RtoMatchSaveError && error.rejected) {
+        setCell(sheet, rowNumber, 'Status', 'Failed');
+      }
+      setCell(sheet, rowNumber, 'Last Error', safeErrorMessage(error));
+      setCell(sheet, rowNumber, 'Updated At', timestamp);
+      auditLog(
+        'match_submission',
+        {
+          environment: 'production',
+          outcome: error instanceof RtoMatchSaveError && error.rejected ? 'rejected' : 'unknown',
+          submissionId: request.submissionId,
+          userId: numericUserId(claims),
+          playerIds,
+          httpStatus: error instanceof RtoMatchSaveError ? error.status : undefined,
+          error: safeErrorMessage(error)
+        },
+        'warning'
+      );
+      throw error;
+    }
+    setCell(sheet, rowNumber, 'RTO Match ID', String(matchId));
+    setCell(sheet, rowNumber, 'Status', 'Submitted');
+    recordHistoryTab(spreadsheetId, request.tabName);
+    setCell(sheet, rowNumber, 'Updated At', timestamp);
+    auditLog('match_submission', {
+      environment: 'production',
+      outcome: 'submitted',
+      submissionId: request.submissionId,
+      userId: numericUserId(claims),
+      playerIds,
+      matchId
+    });
+    return { submitted: true };
   } finally {
     lock.releaseLock();
   }
-  throw new Error('That submission could not be found.');
 }
 
 function resolveHandicap(token: string, record: QueueRecord, players: readonly ReviewedPlayer[]): ResolvedHandicap {
@@ -537,8 +512,15 @@ function loginAuditContext(payload: unknown): Record<string, string> {
 }
 
 function authorize(token: string): Record<string, unknown> {
+  const now = Date.now();
   const claims = decodeJwtPayload(token);
-  validateSessionClaims(claims, Date.now());
+  validateSessionClaims(claims, now);
+  const cache = CacheService.getScriptCache();
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token);
+  const cacheKey = `admin:validated-session:${Utilities.base64EncodeWebSafe(digest)}`;
+  if (cache.get(cacheKey)) {
+    return claims;
+  }
   enforceAdminRateLimit(
     'token-validation',
     TOKEN_VALIDATION_RATE_LIMIT,
@@ -546,7 +528,15 @@ function authorize(token: string): Record<string, unknown> {
   );
   const validation = rtoRequest('/User/validate-token', { token }, token);
   requireValidatedToken(validation);
+  const cacheSeconds = validatedSessionCacheSeconds(claims, now);
+  if (cacheSeconds > 0) {
+    cache.put(cacheKey, '1', cacheSeconds);
+  }
   return claims;
+}
+
+export function validatedSessionCacheSeconds(claims: Record<string, unknown>, now: number): number {
+  return Math.max(0, Math.min(VALIDATED_SESSION_CACHE_SECONDS, Math.floor(Number(claims.exp) - now / 1_000)));
 }
 
 function enforceAdminRateLimit(key: string, limit: number, message: string): void {
@@ -735,6 +725,26 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
   }
 }
 
+function readQueueIndex(spreadsheetId: string): QueueIndex | undefined {
+  return parseQueueIndex(
+    PropertiesService.getScriptProperties().getProperty(QUEUE_INDEX_PROPERTY_PREFIX + spreadsheetId)
+  );
+}
+
+function writeQueueIndex(spreadsheetId: string, index: QueueIndex): void {
+  PropertiesService.getScriptProperties().setProperty(
+    QUEUE_INDEX_PROPERTY_PREFIX + spreadsheetId,
+    JSON.stringify(index)
+  );
+}
+
+function recordHistoryTab(spreadsheetId: string, tabName: string): void {
+  const index = readQueueIndex(spreadsheetId);
+  if (index) {
+    writeQueueIndex(spreadsheetId, withHistoryTab(index, tabName));
+  }
+}
+
 function recordsFromSheet(sheet: GoogleAppsScript.Spreadsheet.Sheet): QueueRecord[] {
   if (sheet.getLastRow() < 2) {
     return [];
@@ -755,10 +765,6 @@ function validateQueuePageRequest(request: unknown): { readonly view: QueueView;
     throw new Error('Choose a valid history page.');
   }
   return { view: request.view, page };
-}
-
-function isHistoryRecord(record: QueueRecord): boolean {
-  return record.status === 'Submitted' || record.status === 'Withdrawn';
 }
 
 function recordFromRow(row: readonly string[]): QueueRecord {
@@ -839,8 +845,13 @@ function validateReviewedSubmission(payload: unknown): ReviewedSubmissionRequest
   if (new Set(players.map(player => player.id)).size !== players.length) {
     throw new Error('Choose a different RTO player for each position.');
   }
+  const tabName = requiredString(payload.tabName, 'Queue week');
+  if (!WEEK_SHEET_NAME_PATTERN.test(tabName)) {
+    throw new Error('That submission could not be found.');
+  }
   return {
     submissionId: requiredString(payload.submissionId, 'Submission ID'),
+    tabName,
     players,
     score
   };

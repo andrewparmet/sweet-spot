@@ -4,24 +4,26 @@ import path from 'node:path';
 import { appsScriptComponents } from './components.ts';
 import { demoSubmitLocalRecord, readLocalTabs } from './local-queue.ts';
 import { normalizeScore } from '../packages/shared/src/match.ts';
+import { loadQueuePage, withHistoryTab, type QueueIndex } from '../apps/admin/src/queue-index.ts';
 
 const PORT = 4174;
 const MAX_REQUEST_BYTES = 20_000;
 const LOCAL_TOKEN = 'local-admin-session';
 const htmlPath = path.join(appsScriptComponents.admin.distDirectory, 'Index.html');
+let queueIndex: QueueIndex | undefined;
 const directory = [
   { id: '10001', name: 'Charlie Brown', handicap: 42.1, isBoston: true },
   { id: '10002', name: 'Lucy van Pelt', handicap: 48.4, isBoston: true },
-  { id: '10003', name: 'Snoopy', handicap: 31.7, isBoston: true },
-  { id: '10004', name: 'Woodstock', handicap: 54.2, isBoston: true },
-  { id: '10005', name: 'Schroeder', handicap: 39.8, isBoston: true },
-  { id: '10006', name: 'Franklin Armstrong', handicap: 44.5, isBoston: true },
-  { id: '10007', name: 'Peppermint Patty', handicap: 36.3, isBoston: false },
-  { id: '10008', name: 'Marcie', handicap: 46.9, isBoston: false },
-  { id: '10009', name: 'Linus van Pelt', handicap: 43.6, isBoston: false },
-  { id: '10010', name: 'Sally Brown', handicap: 51.2, isBoston: false },
-  { id: '10011', name: 'Pig-Pen', handicap: 49.7, isBoston: false },
-  { id: '10012', name: 'Violet Gray', handicap: 45.1, isBoston: false }
+  { id: '10003', name: 'Linus van Pelt', handicap: 43.6, isBoston: true },
+  { id: '10004', name: 'Franklin Armstrong', handicap: 44.5, isBoston: true },
+  { id: '10005', name: 'Patricia Reichardt', handicap: 36.3, isBoston: true },
+  { id: '10006', name: 'Marcie Carlin', handicap: 46.9, isBoston: true },
+  { id: '10007', name: 'Sally Brown', handicap: 51.2, isBoston: false },
+  { id: '10008', name: 'Violet Gray', handicap: 45.1, isBoston: false },
+  { id: '10009', name: 'Shermy Miller', handicap: 39.8, isBoston: false },
+  { id: '10010', name: 'Frieda Smith', handicap: 54.2, isBoston: false },
+  { id: '10011', name: 'Rerun van Pelt', handicap: 49.7, isBoston: false },
+  { id: '10012', name: 'Charles Browning', handicap: 37.3, isBoston: false }
 ];
 
 const server = http.createServer(async (request, response) => {
@@ -52,33 +54,15 @@ const server = http.createServer(async (request, response) => {
       const requestedPage = Number(requestUrl.searchParams.get('page') ?? '0');
       const page = Number.isSafeInteger(requestedPage) && requestedPage >= 0 ? requestedPage : 0;
       const tabs = await readLocalTabs();
-      const weeks = Array.from(tabs.entries()).map(([tabName, records]) => ({
-        tabName,
-        items: records.map(record => ({ tabName, record }))
-      }));
-      const isHistory = (item: (typeof weeks)[number]['items'][number]): boolean =>
-        item.record.status === 'Submitted' || item.record.status === 'Withdrawn';
-      const historyWeeks = weeks
-        .map(week => ({ ...week, items: week.items.filter(isHistory) }))
-        .filter(week => week.items.length > 0)
-        .sort((left, right) => right.tabName.localeCompare(left.tabName));
-      const selectedWeek = historyWeeks[page];
-      const items = (
-        view === 'history'
-          ? (selectedWeek?.items ?? [])
-          : weeks.flatMap(week => week.items).filter(item => !isHistory(item))
-      ).sort((left, right) => right.record.submittedAt.localeCompare(left.record.submittedAt));
-      send(
-        response,
-        200,
-        'application/json',
-        JSON.stringify({
-          items,
-          page: view === 'history' ? page : 0,
-          hasNext: view === 'history' && historyWeeks.length > page + 1,
-          week: view === 'history' ? selectedWeek?.tabName : undefined
-        })
+      const result = loadQueuePage(
+        { names: [...tabs.keys()], read: tabName => tabs.get(tabName) ?? [] },
+        queueIndex,
+        view,
+        page,
+        Date.now()
       );
+      queueIndex = result.index;
+      send(response, 200, 'application/json', JSON.stringify(result.page));
       return;
     }
     if (request.method === 'GET' && request.url === '/api/directory') {
@@ -92,10 +76,11 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/api/submissions/demo') {
       const payload = JSON.parse(await readBody(request)) as {
         readonly submissionId?: string;
+        readonly tabName?: string;
         readonly players?: { readonly id?: string }[];
         readonly score?: string;
       };
-      if (!payload.submissionId || !payload.players?.length || !payload.score) {
+      if (!payload.submissionId || !payload.tabName || !payload.players?.length || !payload.score) {
         throw new Error('The demo submission is incomplete.');
       }
       const now = new Date();
@@ -106,6 +91,9 @@ const server = http.createServer(async (request, response) => {
         now.toISOString(),
         `demo-${now.getTime()}`
       );
+      if (queueIndex) {
+        queueIndex = withHistoryTab(queueIndex, payload.tabName);
+      }
       send(response, 200, 'application/json', JSON.stringify({ submitted: true }));
       return;
     }

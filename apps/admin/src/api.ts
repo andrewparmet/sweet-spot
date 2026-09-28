@@ -34,6 +34,7 @@ export interface QueuePage {
 
 export interface ReviewedMatchRequest {
   readonly submissionId: string;
+  readonly tabName: string;
   readonly players: readonly ReviewedPlayer[];
   readonly score: string;
 }

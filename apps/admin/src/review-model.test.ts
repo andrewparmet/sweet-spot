@@ -110,6 +110,7 @@ describe('createReviewModel', () => {
     expect(requests).toEqual([
       {
         submissionId: 'submission-1',
+        tabName: '2026-W38',
         players: [
           { id: '1', handicap: 42.5 },
           { id: '2', handicap: 30 }
