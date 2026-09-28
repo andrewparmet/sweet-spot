@@ -95,8 +95,11 @@ function submitReviewedMatch(token, payload) {
 
   const clientResult = await build({
     bundle: true,
-    entryPoints: [path.join(sourceDirectory, 'client.ts')],
+    define: { SWEET_SPOT_ENVIRONMENT: JSON.stringify(buildEnvironment === 'staging' ? 'Staging' : '') },
+    entryPoints: [path.join(sourceDirectory, 'client.tsx')],
     format: 'iife',
+    jsx: 'automatic',
+    jsxImportSource: 'preact',
     platform: 'browser',
     target: ['safari15', 'chrome100', 'firefox100'],
     write: false
@@ -108,7 +111,6 @@ function submitReviewedMatch(token, payload) {
     readFile(path.join(component.directory, 'appsscript.json'), 'utf8')
   ]);
   const html = htmlTemplate
-    .replaceAll('__SWEET_SPOT_ENVIRONMENT__', buildEnvironment === 'staging' ? 'Staging' : '')
     .replace('/*__SWEET_SPOT_STYLES__*/', () => stylesheet.replaceAll('</style', '<\\/style'))
     .replace('/*__SWEET_SPOT_SCRIPT__*/', () => clientBundle);
   if (html.includes('__SWEET_SPOT_')) {
@@ -172,8 +174,10 @@ function setupStaging_() {
 
   const clientResult = await build({
     bundle: true,
-    entryPoints: [path.join(sourceDirectory, 'client.ts')],
+    entryPoints: [path.join(sourceDirectory, 'client.tsx')],
     format: 'iife',
+    jsx: 'automatic',
+    jsxImportSource: 'preact',
     platform: 'browser',
     target: ['safari15', 'chrome100', 'firefox100'],
     write: false

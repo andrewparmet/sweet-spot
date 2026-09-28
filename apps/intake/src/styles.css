@@ -234,10 +234,6 @@ input[type='text'][aria-invalid='true'] {
   outline-offset: 2px;
 }
 
-.handicap-field {
-  margin-top: 0.75rem;
-}
-
 .check-field {
   display: flex;
   min-height: 3.25rem;

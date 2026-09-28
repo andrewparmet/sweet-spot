@@ -1,5 +1,6 @@
 import { QUEUE_HEADERS, type QueueRecord } from '../../../packages/shared/src/queue.ts';
 import { isValidScore, normalizeScore } from '../../../packages/shared/src/match.ts';
+import { directorySearchTerms } from './player-search.ts';
 import { resolvePlayedHandicapDifference } from './rto-match.ts';
 
 const RTO_API = 'https://www.realtennisonline.com/v2/api';
@@ -187,7 +188,7 @@ export function loadPlayerDirectory(
 function searchPlayers(sessionToken: string, type: 'S' | 'D', name: string): PlayerSearchResult {
   const primaryOrgByPersonId = new Map<number, number>();
   const resolvedNames = new Set<string>();
-  for (const directoryQuery of new Set([name, lastName(name)].filter(Boolean))) {
+  for (const directoryQuery of directorySearchTerms(name)) {
     const directoryResponse = rtoGet(
       `/Person/directory/search?query=${encodeURIComponent(directoryQuery)}&maxResults=10`,
       sessionToken
@@ -211,7 +212,7 @@ function searchPlayers(sessionToken: string, type: 'S' | 'D', name: string): Pla
       }
     }
   }
-  const queries = new Set([name, lastName(name), ...resolvedNames].filter(Boolean));
+  const queries = new Set([...directorySearchTerms(name), ...resolvedNames]);
   const playersById = new Map<string, DirectoryPlayer>();
   for (const query of queries) {
     const response = rtoGet(
@@ -693,10 +694,6 @@ function directoryPlayer(
 
 function cleanPlayerName(value: string): string {
   return value.replace(/\s*\((?:Singles|Doubles)(?: W\/Hand)?\)\s*$/i, '').trim();
-}
-
-function lastName(value: string): string {
-  return value.trim().split(/\s+/).at(-1) || '';
 }
 
 function organizationIds(value: Record<string, unknown>): number[] {

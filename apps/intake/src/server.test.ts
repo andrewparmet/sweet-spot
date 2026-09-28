@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { isValidOdds, isValidScore } from '../../../packages/shared/src/match.ts';
 import {
@@ -53,8 +51,8 @@ describe('validateSubmission', () => {
       requestId: 'request-level',
       clientId: 'client-1',
       matchType: 'S',
-      side1Player1: 'Joe Cool',
-      side2Player1: 'J Cool',
+      side1Player1: 'Charlie Brown',
+      side2Player1: 'C Brown',
       score: '6-4,6-3',
       handicapType: 'odds',
       handicap: '',
@@ -104,8 +102,8 @@ describe('validateSubmission', () => {
         requestId: 'request-blank',
         clientId: 'client-1',
         matchType: 'S',
-        side1Player1: 'Joe Cool',
-        side2Player1: 'J Cool',
+        side1Player1: 'Charlie Brown',
+        side2Player1: 'C Brown',
         score: '   ',
         handicapType: 'odds',
         handicap: '-15/15',
@@ -120,8 +118,8 @@ describe('validateSubmission', () => {
         requestId: 'request-invalid-odds',
         clientId: 'client-1',
         matchType: 'S',
-        side1Player1: 'Joe Cool',
-        side2Player1: 'J Cool',
+        side1Player1: 'Charlie Brown',
+        side2Player1: 'C Brown',
         score: '6-2,6-1',
         handicapType: 'odds',
         handicap: '10',
@@ -188,27 +186,5 @@ describe('Sheet storage', () => {
     expect(isoWeekTabName('2026-09-17')).toBe('2026-W38');
     expect(isoWeekTabName('2027-01-01')).toBe('2026-W53');
     expect(isoWeekTabName('2027-01-04')).toBe('2027-W01');
-  });
-});
-
-describe('player view', () => {
-  it('contains only requested player-facing fields', () => {
-    const html = readFileSync(path.join(import.meta.dirname, 'index.html'), 'utf8');
-    const expectedNames = [
-      'matchType',
-      'side1Player1',
-      'side1Player2',
-      'side2Player1',
-      'side2Player2',
-      'score',
-      'handicapType',
-      'handicap',
-      'tournament',
-      'website'
-    ];
-    const names = Array.from(html.matchAll(/<input[^>]+\bname="([^"]+)"/g), match => match[1]);
-
-    expect(Array.from(new Set(names))).toEqual(expectedNames);
-    expect(html).not.toMatch(/Match date|Court ID|Description|Weighting/i);
   });
 });

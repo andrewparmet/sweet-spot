@@ -28,6 +28,15 @@ export function playerMatchScore(input: string, candidate: string): number {
   if (inputParts.length > 1 && inputFirst.length === 1 && inputFirst === candidateFirst[0] && surnameMatches) {
     return 0.1;
   }
+  if (
+    inputParts.length > 1 &&
+    inputLast.length === 1 &&
+    inputFirst === candidateFirst &&
+    candidateParts.length > 1 &&
+    candidateLast.startsWith(inputLast)
+  ) {
+    return 0.1;
+  }
   if (inputParts.length === 1 && surnameMatches) {
     return 0.15;
   }
@@ -45,6 +54,13 @@ export function playerMatchScore(input: string, candidate: string): number {
     return 1;
   }
   return 2 + normalizedDistance(normalizedInput, normalizedCandidate);
+}
+
+export function directorySearchTerms(name: string): string[] {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const last = parts.at(-1) ?? '';
+  const nameTerm = parts.length > 1 && normalizedPlayerName(last).length === 1 ? (parts[0] ?? '') : last;
+  return [...new Set([name, nameTerm].filter(Boolean))];
 }
 
 export function reasonablePlayerMatches<T extends { readonly name: string }>(
