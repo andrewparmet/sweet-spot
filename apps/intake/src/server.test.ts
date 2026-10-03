@@ -143,7 +143,7 @@ describe('odds validation', () => {
 });
 
 describe('score validation', () => {
-  it.each(['6-2,6-1', '6/2 6/1', '10-8', '6–5, 2—1'])('accepts %s', score => {
+  it.each(['6-2,6-1', '6/2 6/1', '6/5,6/1', '10-8', '6–5, 2—1'])('accepts %s', score => {
     expect(isValidScore(score)).toBe(true);
   });
 
@@ -171,6 +171,7 @@ describe('score normalization', () => {
   it('normalizes common separators without constraining the format', () => {
     expect(normalizeScore(' 6-2,  6–1, 3—2 ')).toBe('6/2 6/1 3/2');
     expect(normalizeScore('6-2,6-1')).toBe('6/2 6/1');
+    expect(normalizeScore('6/5,6/1')).toBe('6/5 6/1');
     expect(normalizeScore('10-8')).toBe('10/8');
   });
 });
