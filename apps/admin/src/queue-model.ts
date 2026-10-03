@@ -8,11 +8,13 @@ export interface QueueState {
   readonly hasNext: boolean;
   readonly week: string;
   readonly loading: boolean;
+  readonly deletingId: string | undefined;
   readonly error: string | undefined;
 }
 
 export interface QueueDependencies {
   readonly loadAdminQueue: (request: QueueRequest) => Promise<QueuePage>;
+  readonly deleteQueuedMatch: (item: AdminQueueItem) => Promise<void>;
   readonly isAuthenticationError: (error: unknown) => boolean;
   readonly onAuthenticationError: (message: string) => void;
 }
@@ -26,6 +28,7 @@ const initialState: QueueState = {
   hasNext: false,
   week: '',
   loading: false,
+  deletingId: undefined,
   error: undefined
 };
 
@@ -84,6 +87,31 @@ export function createQueueModel(dependencies: QueueDependencies) {
     }
   }
 
+  async function remove(item: AdminQueueItem): Promise<void> {
+    if (state.value.deletingId) {
+      return;
+    }
+    state.value = { ...state.value, deletingId: item.record.submissionId, error: undefined };
+    try {
+      await dependencies.deleteQueuedMatch(item);
+      state.value = {
+        ...state.value,
+        items: state.value.items.filter(candidate => candidate.record.submissionId !== item.record.submissionId),
+        deletingId: undefined
+      };
+    } catch (error) {
+      if (dependencies.isAuthenticationError(error)) {
+        dependencies.onAuthenticationError(error instanceof Error ? error.message : 'Sign in again.');
+        return;
+      }
+      state.value = {
+        ...state.value,
+        deletingId: undefined,
+        error: error instanceof Error ? error.message : 'The submission could not be deleted.'
+      };
+    }
+  }
+
   function selectView(view: QueueView): void {
     if (state.value.view === view) {
       return;
@@ -105,5 +133,5 @@ export function createQueueModel(dependencies: QueueDependencies) {
     state.value = initialState;
   }
 
-  return { state, message, showPagination, load, selectView, previousPage, nextPage, reset };
+  return { state, message, showPagination, load, remove, selectView, previousPage, nextPage, reset };
 }

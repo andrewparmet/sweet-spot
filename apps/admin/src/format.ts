@@ -19,6 +19,13 @@ export function handicapLabel(record: QueueRecord): string {
   return record.handicapEntryType === 'difference' ? 'Difference' : 'Odds';
 }
 
+export function matchCategory(record: QueueRecord): string {
+  if (record.sanctioned) {
+    return 'Sanctioned tournament';
+  }
+  return record.tournament ? 'Tournament' : 'Friendly';
+}
+
 export function statusClass(status: QueueRecord['status']): string {
   return `status status-${status.toLowerCase().replaceAll(' ', '-')}`;
 }

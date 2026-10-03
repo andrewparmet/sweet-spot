@@ -1,5 +1,12 @@
-import { QUEUE_HEADERS, type QueueRecord } from '../../../packages/shared/src/queue.ts';
-import { isValidScore, normalizeScore } from '../../../packages/shared/src/match.ts';
+import { QUEUE_HEADERS, queueRecordToRow, type QueueRecord } from '../../../packages/shared/src/queue.ts';
+import {
+  ensureWeekSheet,
+  findSubmissionByRequestId,
+  isoWeekTabName,
+  newQueueRecord
+} from '../../../packages/shared/src/queue-sheet.ts';
+import { requiredText, validateMatchDate, validateMatchFields } from '../../../packages/shared/src/submission.ts';
+import { isValidOdds, isValidScore, normalizeScore } from '../../../packages/shared/src/match.ts';
 import { directorySearchTerms } from './player-search.ts';
 import {
   loadQueuePage,
@@ -46,6 +53,13 @@ interface ReviewedSubmissionRequest {
   readonly tabName: string;
   readonly players: ReviewedPlayer[];
   readonly score: string;
+  readonly handicap: string;
+  readonly sanctionedMatch: string;
+}
+
+interface SanctionedMatch {
+  readonly id: string;
+  readonly description: string;
 }
 
 interface RtoRole {
@@ -103,6 +117,27 @@ export function loadBostonDirectory(token: unknown, matchType: unknown): { reado
     }
   }
   return { players: [...playersById.values()].sort((left, right) => left.name.localeCompare(right.name)) };
+}
+
+export function loadSanctionedMatches(token: unknown): { readonly matches: SanctionedMatch[] } {
+  const sessionToken = requiredString(token, 'RTO session');
+  authorize(sessionToken);
+  return { matches: sanctionedMatches(sessionToken) };
+}
+
+function sanctionedMatches(sessionToken: string): SanctionedMatch[] {
+  const response = rtoGet('/SanctionedMatch/getAll', sessionToken);
+  if (!Array.isArray(response)) {
+    throw new Error('RTO returned an unreadable sanctioned match list.');
+  }
+  return response.flatMap(value => {
+    if (!isRecord(value) || value.isDeleted === true || value.IsDeleted === true) {
+      return [];
+    }
+    const id = value.sanctionedMatchID ?? value.SanctionedMatchID;
+    const description = readString(value, 'description', 'Description').trim();
+    return (typeof id === 'string' || typeof id === 'number') && description ? [{ id: String(id), description }] : [];
+  });
 }
 
 export function adminLogin(payload: unknown): { readonly token: string } {
@@ -213,8 +248,7 @@ export function submitReviewedMatch(
   token: unknown,
   payload: unknown,
   spreadsheetId: string,
-  liveRtoSubmission: boolean,
-  tournamentWeightCode: 'X' | 'C'
+  liveRtoSubmission: boolean
 ): { readonly submitted: true } {
   const sessionToken = requiredString(token, 'RTO session');
   const claims = authorize(sessionToken);
@@ -231,7 +265,10 @@ export function submitReviewedMatch(
       throw new Error('That submission could not be found.');
     }
     const rowNumber = rowOffset + 2;
-    const record = recordFromRow(sheet.getRange(rowNumber, 1, 1, QUEUE_HEADERS.length).getDisplayValues()[0] ?? []);
+    const queuedRecord = recordFromRow(
+      sheet.getRange(rowNumber, 1, 1, QUEUE_HEADERS.length).getDisplayValues()[0] ?? []
+    );
+    const record = { ...queuedRecord, handicapOriginal: validReviewedHandicap(queuedRecord, request.handicap) };
     const expectedPlayerCount = record.matchType === 'D' ? 4 : 2;
     if (request.players.length !== expectedPlayerCount) {
       throw new Error(`Choose ${expectedPlayerCount} RTO players for this match.`);
@@ -241,6 +278,17 @@ export function submitReviewedMatch(
     }
     if (liveRtoSubmission && record.status === 'Needs reconciliation') {
       throw new Error('This submission may already have reached RTO and must be reconciled before retrying.');
+    }
+    const description = record.sanctioned ? request.sanctionedMatch : '';
+    if (record.sanctioned && !description) {
+      throw new Error('Choose the sanctioned match.');
+    }
+    if (
+      liveRtoSubmission &&
+      description &&
+      !sanctionedMatches(sessionToken).some(match => match.description === description)
+    ) {
+      throw new Error('That sanctioned match is no longer listed in RTO.');
     }
     const timestamp = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
     const playerIds = request.players.map(player => String(player.id));
@@ -300,7 +348,7 @@ export function submitReviewedMatch(
 
     let matchId: number;
     try {
-      matchId = saveRtoMatch(sessionToken, claims, record, request.players, score, handicap, tournamentWeightCode);
+      matchId = saveRtoMatch(sessionToken, claims, record, request.players, score, handicap, description);
     } catch (error) {
       if (error instanceof RtoMatchSaveError && error.rejected) {
         setCell(sheet, rowNumber, 'Status', 'Failed');
@@ -335,6 +383,73 @@ export function submitReviewedMatch(
       matchId
     });
     return { submitted: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+export function submitAdminEntry(
+  token: unknown,
+  payload: unknown,
+  spreadsheetId: string
+): { readonly submissionId: string } {
+  const claims = authorize(requiredString(token, 'RTO session'));
+  if (!isRecord(payload)) {
+    throw new Error('The match entry is missing.');
+  }
+  const now = new Date();
+  const today = Utilities.formatDate(now, BOSTON_TIME_ZONE, 'yyyy-MM-dd');
+  const requestId = requiredText(payload.requestId, 'Request ID', 64);
+  const fields = validateMatchFields(payload);
+  const matchDate = validateMatchDate(payload.matchDate, today);
+  const sanctioned = payload.sanctioned === true;
+  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10_000);
+  try {
+    const existingSubmissionId = findSubmissionByRequestId(spreadsheet, requestId);
+    if (existingSubmissionId) {
+      return { submissionId: existingSubmissionId };
+    }
+    const submissionId = Utilities.getUuid();
+    const timestamp = Utilities.formatDate(now, BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+    const sheet = ensureWeekSheet(spreadsheet, isoWeekTabName(today));
+    sheet.appendRow(
+      queueRecordToRow(newQueueRecord(fields, { submissionId, requestId, timestamp, matchDate, sanctioned }))
+    );
+    auditLog('admin_entry', { submissionId, sanctioned, userId: numericUserId(claims) });
+    return { submissionId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+export function deleteQueuedMatch(token: unknown, payload: unknown, spreadsheetId: string): { readonly deleted: true } {
+  const claims = authorize(requiredString(token, 'RTO session'));
+  const request = validateQueuedMatchReference(payload);
+  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10_000);
+  try {
+    const sheet = spreadsheet.getSheetByName(request.tabName);
+    const submissionIds =
+      sheet && sheet.getLastRow() >= 2 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues() : [];
+    const rowOffset = submissionIds.findIndex(([submissionId]) => submissionId === request.submissionId);
+    if (!sheet || rowOffset < 0) {
+      throw new Error('That submission could not be found.');
+    }
+    const rowNumber = rowOffset + 2;
+    const record = recordFromRow(sheet.getRange(rowNumber, 1, 1, QUEUE_HEADERS.length).getDisplayValues()[0] ?? []);
+    if (record.status === 'Submitted' || record.status === 'Needs reconciliation') {
+      throw new Error('That score may already be in RTO and cannot be deleted here.');
+    }
+    sheet.deleteRow(rowNumber);
+    auditLog('queue_deletion', {
+      submissionId: request.submissionId,
+      status: record.status,
+      userId: numericUserId(claims)
+    });
+    return { deleted: true };
   } finally {
     lock.releaseLock();
   }
@@ -413,7 +528,7 @@ function saveRtoMatch(
   players: readonly ReviewedPlayer[],
   score: string,
   handicap: ResolvedHandicap,
-  tournamentWeightCode: 'X' | 'C'
+  description: string
 ): number {
   const userId = Number(claims.sub);
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -433,8 +548,8 @@ function saveRtoMatch(
       Score: score,
       HcapDifference: handicap.difference,
       HL: handicap.type,
-      SC: record.tournament ? tournamentWeightCode : 'S',
-      Description: '',
+      SC: matchWeighting(record),
+      Description: description,
       UserId: userId,
       Source: 'rto_web_site',
       ResultMode: 'NONE',
@@ -447,6 +562,14 @@ function saveRtoMatch(
   });
   const status = response.getResponseCode();
   const bodyText = response.getContentText();
+  if (status < 200 || status >= 300) {
+    const detail = rtoErrorDetail(bodyText);
+    const rejected = status >= 400 && status < 500 && status !== 408;
+    const message = rejected
+      ? detail || `RTO rejected the match with HTTP ${status}.`
+      : `RTO returned HTTP ${status}; the submission outcome is unknown. Reconcile in RTO.`;
+    throw new RtoMatchSaveError(message, rejected, status);
+  }
   let body: unknown;
   try {
     body = bodyText ? (JSON.parse(bodyText) as unknown) : undefined;
@@ -457,15 +580,6 @@ function saveRtoMatch(
       status
     );
   }
-  if (status < 200 || status >= 300) {
-    const errorBody = isRecord(body) ? body : {};
-    const detail = readString(errorBody, 'message', 'Message', 'error', 'Error');
-    const rejected = status >= 400 && status < 500 && status !== 408;
-    const message = rejected
-      ? detail || `RTO rejected the match with HTTP ${status}.`
-      : `RTO returned HTTP ${status}; the submission outcome is unknown. Reconcile in RTO.`;
-    throw new RtoMatchSaveError(message, rejected, status);
-  }
   const responseBody = isRecord(body) ? body : {};
   const matchId = Number(
     isRecord(body) ? (responseBody.matchID ?? responseBody.matchId ?? responseBody.MatchID) : body
@@ -474,6 +588,38 @@ function saveRtoMatch(
     throw new RtoMatchSaveError('RTO did not return a match ID. Reconcile in RTO.', false);
   }
   return matchId;
+}
+
+export function rtoErrorDetail(bodyText: string): string {
+  let body: unknown;
+  try {
+    body = JSON.parse(bodyText) as unknown;
+  } catch {
+    return bodyText.trim().slice(0, 500);
+  }
+  if (typeof body === 'string') {
+    return body.trim().slice(0, 500);
+  }
+  if (!isRecord(body)) {
+    return '';
+  }
+  const errors = body.errors ?? body.Errors;
+  const fieldErrors = isRecord(errors)
+    ? Object.values(errors)
+        .flat()
+        .filter(value => typeof value === 'string')
+    : [];
+  return [readString(body, 'message', 'Message', 'error', 'Error', 'title', 'Title'), ...fieldErrors]
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 500);
+}
+
+export function matchWeighting(record: Pick<QueueRecord, 'sanctioned' | 'tournament'>): 'X' | 'C' | 'S' {
+  if (record.sanctioned) {
+    return 'X';
+  }
+  return record.tournament ? 'C' : 'S';
 }
 
 function safeErrorMessage(error: unknown): string {
@@ -790,7 +936,8 @@ function recordFromRow(row: readonly string[]): QueueRecord {
     rtoHandicapDifference: value('RTO Handicap Difference'),
     rtoMatchId: value('RTO Match ID'),
     lastError: value('Last Error'),
-    updatedAt: value('Updated At')
+    updatedAt: value('Updated At'),
+    sanctioned: value('Sanctioned').toLowerCase() === 'true'
   };
 }
 
@@ -845,6 +992,14 @@ function validateReviewedSubmission(payload: unknown): ReviewedSubmissionRequest
   if (new Set(players.map(player => player.id)).size !== players.length) {
     throw new Error('Choose a different RTO player for each position.');
   }
+  const handicap = typeof payload.handicap === 'string' ? payload.handicap.trim() : '';
+  if (handicap.length > 60) {
+    throw new Error('The handicap is too long.');
+  }
+  const sanctionedMatch = typeof payload.sanctionedMatch === 'string' ? payload.sanctionedMatch.trim() : '';
+  if (sanctionedMatch.length > 500) {
+    throw new Error('The sanctioned match is too long.');
+  }
   const tabName = requiredString(payload.tabName, 'Queue week');
   if (!WEEK_SHEET_NAME_PATTERN.test(tabName)) {
     throw new Error('That submission could not be found.');
@@ -853,8 +1008,31 @@ function validateReviewedSubmission(payload: unknown): ReviewedSubmissionRequest
     submissionId: requiredString(payload.submissionId, 'Submission ID'),
     tabName,
     players,
-    score
+    score,
+    handicap,
+    sanctionedMatch
   };
+}
+
+function validateQueuedMatchReference(payload: unknown): { readonly submissionId: string; readonly tabName: string } {
+  if (!isRecord(payload)) {
+    throw new Error('That submission could not be found.');
+  }
+  const tabName = requiredString(payload.tabName, 'Queue week');
+  if (!WEEK_SHEET_NAME_PATTERN.test(tabName)) {
+    throw new Error('That submission could not be found.');
+  }
+  return { submissionId: requiredString(payload.submissionId, 'Submission ID'), tabName };
+}
+
+function validReviewedHandicap(record: QueueRecord, handicap: string): string {
+  if (handicap && record.handicapEntryType === 'difference' && !/^[+-]?\d+(?:\.\d+)?$/.test(handicap)) {
+    throw new Error('Enter the handicap difference as a number.');
+  }
+  if (handicap && record.handicapEntryType === 'odds' && !isValidOdds(handicap)) {
+    throw new Error('Enter two valid odds scores, such as -15/15 or -h15/15.');
+  }
+  return handicap;
 }
 
 function requiredString(value: unknown, label: string): string {

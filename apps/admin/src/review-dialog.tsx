@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 import type { DirectoryPlayer } from './api.ts';
-import { handicapLabel, teamName } from './format.ts';
+import { teamName } from './format.ts';
 import {
+  isValidHandicap,
   playerOptions,
   type ExpansionStatus,
   type PlayerSlot,
@@ -91,10 +92,6 @@ function ReviewContent({ review, form }: { readonly review: ReviewModel; readonl
   return (
     <div>
       <div class="dialog-match">{`${teamName(record, 1)} vs ${teamName(record, 2)}`}</div>
-      <div class="dialog-handicap">
-        <span>{handicapLabel(record)}</span>
-        <strong>{record.handicapOriginal || 'Level'}</strong>
-      </div>
       <label class="score-override" for="review-score">
         <span>Score</span>
         <input
@@ -107,6 +104,38 @@ function ReviewContent({ review, form }: { readonly review: ReviewModel; readonl
           onInput={event => review.setScore(event.currentTarget.value)}
         />
       </label>
+      <label class="score-override" for="review-handicap">
+        <span>{record.handicapEntryType === 'difference' ? 'Difference' : 'Odds'}</span>
+        <input
+          id="review-handicap"
+          type="text"
+          autocomplete="off"
+          autocapitalize="none"
+          maxLength={60}
+          placeholder="Level"
+          value={form.handicap}
+          aria-invalid={isValidHandicap(record, form.handicap) ? undefined : 'true'}
+          onInput={event => review.setHandicap(event.currentTarget.value)}
+        />
+      </label>
+      {record.sanctioned && (
+        <label class="score-override" for="review-sanctioned-match">
+          <span>Sanctioned match</span>
+          <select
+            id="review-sanctioned-match"
+            onChange={event => review.selectSanctionedMatch(event.currentTarget.value)}
+          >
+            <option value="" selected={!form.sanctionedMatch} disabled>
+              Choose the sanctioned match
+            </option>
+            {form.sanctionedMatches.map(match => (
+              <option key={match.id} value={match.description} selected={match.description === form.sanctionedMatch}>
+                {match.description}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div class="player-matches">
         {sides.map((slots, sideIndex) => (
           <section key={sideIndex} class="player-side">

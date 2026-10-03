@@ -29,7 +29,8 @@ const record: QueueRecord = {
   rtoHandicapDifference: '',
   rtoMatchId: '',
   lastError: '',
-  updatedAt: ''
+  updatedAt: '',
+  sanctioned: false
 };
 const item: AdminQueueItem = { tabName: '2026-W38', record };
 
@@ -37,6 +38,7 @@ function dependencies(overrides: Partial<ReviewDependencies> = {}): ReviewDepend
   return {
     loadBostonPlayers: async () => boston,
     expandPlayerSearch: async () => [linus],
+    loadSanctionedMatches: async () => [{ id: '7', description: '2026 US Open' }],
     submitReviewedMatch: async () => undefined,
     onSubmitted: () => undefined,
     ...overrides
@@ -106,6 +108,7 @@ describe('createReviewModel', () => {
     await review.open(item);
     review.selectPlayer(1, '2');
     review.setScore(' 6-3 ');
+    review.setHandicap(' -15/15 ');
     await review.submit();
     expect(requests).toEqual([
       {
@@ -115,11 +118,39 @@ describe('createReviewModel', () => {
           { id: '1', handicap: 42.5 },
           { id: '2', handicap: 30 }
         ],
-        score: '6-3'
+        score: '6-3',
+        handicap: '-15/15',
+        sanctionedMatch: ''
       }
     ]);
     expect(review.state.value.phase).toBe('closed');
     expect(onSubmitted).toHaveBeenCalledOnce();
+  });
+
+  it('starts from the entered handicap and blocks invalid overrides', async () => {
+    const review = createReviewModel(dependencies());
+    await review.open({ ...item, record: { ...record, handicapOriginal: '-h15/15' } });
+    review.selectPlayer(1, '2');
+    expect(form(review.state.value).handicap).toBe('-h15/15');
+    expect(review.canSubmit.value).toBe(true);
+    review.setHandicap('-16');
+    expect(review.canSubmit.value).toBe(false);
+    review.setHandicap('');
+    expect(review.canSubmit.value).toBe(true);
+  });
+
+  it('requires a sanctioned match choice for sanctioned scores', async () => {
+    const requests: ReviewedMatchRequest[] = [];
+    const review = createReviewModel(
+      dependencies({ submitReviewedMatch: async request => void requests.push(request) })
+    );
+    await review.open({ ...item, record: { ...record, tournament: true, sanctioned: true } });
+    review.selectPlayer(1, '2');
+    expect(form(review.state.value).sanctionedMatches).toEqual([{ id: '7', description: '2026 US Open' }]);
+    expect(review.canSubmit.value).toBe(false);
+    review.selectSanctionedMatch('2026 US Open');
+    await review.submit();
+    expect(requests[0]?.sanctionedMatch).toBe('2026 US Open');
   });
 
   it('stays open and ignores close requests while submitting', async () => {

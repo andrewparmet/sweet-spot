@@ -1,35 +1,33 @@
 import {
-  HANDICAP_ENTRY_TYPES,
-  isValidOdds,
-  isValidScore,
-  MATCH_TYPES,
   normalizeScore,
-  type HandicapEntryType,
   type MatchSubmissionResponse,
-  type MatchType,
   type UndoSubmissionRequest,
   type UndoSubmissionResponse,
   type ValidatedMatchSubmission
 } from '../../../packages/shared/src/match.ts';
 export { normalizeScore } from '../../../packages/shared/src/match.ts';
 import {
-  INITIAL_QUEUE_STATUS,
   QUEUE_HEADERS,
   queueRecordToRow,
   type QueueLocation,
   type QueueRecord
 } from '../../../packages/shared/src/queue.ts';
+import {
+  BOSTON_COURT_ID,
+  ensureWeekSheet,
+  findSubmissionByRequestId,
+  isoWeekTabName,
+  newQueueRecord,
+  WEEK_SHEET_NAME_PATTERN
+} from '../../../packages/shared/src/queue-sheet.ts';
+export { escapeForSheet, isoWeekTabName } from '../../../packages/shared/src/queue-sheet.ts';
+import { requiredText, validateMatchFields } from '../../../packages/shared/src/submission.ts';
 
 const SPREADSHEET_ID_PROPERTY = 'SWEET_SPOT_SPREADSHEET_ID';
 const ENVIRONMENT_PROPERTY = 'SWEET_SPOT_ENVIRONMENT';
 const STAGING_SEED_VERSION_PROPERTY = 'SWEET_SPOT_STAGING_SEED_VERSION';
 const STAGING_SEED_VERSION = '1';
-const BOSTON_COURT_ID = 36;
 const BOSTON_TIME_ZONE = 'America/New_York';
-const WEEK_SHEET_NAME_PATTERN = /^\d{4}-W\d{2}$/;
-const MAX_TEXT_LENGTH = 100;
-const MAX_SCORE_LENGTH = 100;
-const MAX_HANDICAP_LENGTH = 60;
 const THROTTLE_SECONDS = 3;
 const GLOBAL_THROTTLE_LIMIT = 30;
 const GLOBAL_THROTTLE_SECONDS = 60;
@@ -150,7 +148,8 @@ function seedStagingHistory(spreadsheet: GoogleAppsScript.Spreadsheet.Spreadshee
       rtoHandicapDifference: '',
       rtoMatchId: `demo-${sample.key}`,
       lastError: '',
-      updatedAt: timestamp
+      updatedAt: timestamp,
+      sanctioned: false
     };
     sheet.appendRow(queueRecordToRow(record));
   }
@@ -208,29 +207,13 @@ export function submitMatch(payload: unknown): MatchSubmissionResponse {
     const timestamp = Utilities.formatDate(now, BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
     const sheet = ensureWeekSheet(spreadsheet, isoWeekTabName(matchDate));
 
-    const record: QueueRecord = {
+    const record = newQueueRecord(submission, {
       submissionId,
       requestId: submission.requestId,
-      submittedAt: timestamp,
+      timestamp,
       matchDate,
-      courtId: BOSTON_COURT_ID,
-      matchType: submission.matchType,
-      side1Player1: escapeForSheet(submission.side1Player1),
-      side1Player2: escapeForSheet(submission.side1Player2),
-      side2Player1: escapeForSheet(submission.side2Player1),
-      side2Player2: escapeForSheet(submission.side2Player2),
-      scoreOriginal: escapeForSheet(submission.score),
-      handicapEntryType: submission.handicapType,
-      handicapOriginal: escapeForSheet(submission.handicap),
-      tournament: submission.tournament,
-      status: INITIAL_QUEUE_STATUS,
-      scoreNormalized: escapeForSheet(normalizeScore(submission.score)),
-      rtoPlayerIds: '',
-      rtoHandicapDifference: '',
-      rtoMatchId: '',
-      lastError: '',
-      updatedAt: timestamp
-    };
+      sanctioned: false
+    });
     sheet.appendRow(queueRecordToRow(record));
 
     return {
@@ -283,54 +266,10 @@ export function validateSubmission(payload: unknown): ValidatedMatchSubmission {
 
   const requestId = requiredText(payload.requestId, 'Request ID', 64);
   const clientId = requiredText(payload.clientId, 'Client ID', 64);
-  const matchTypeValue = String(payload.matchType ?? '')
-    .trim()
-    .toUpperCase();
-  if (!isIncluded(MATCH_TYPES, matchTypeValue)) {
-    throw new Error('Choose singles or doubles.');
-  }
-  const matchType: MatchType = matchTypeValue;
-
-  const handicapTypeValue = String(payload.handicapType ?? '')
-    .trim()
-    .toLowerCase();
-  if (!isIncluded(HANDICAP_ENTRY_TYPES, handicapTypeValue)) {
-    throw new Error('Choose odds or handicap difference.');
-  }
-  const handicapType: HandicapEntryType = handicapTypeValue;
-
-  const side1Player1 = requiredText(payload.side1Player1, 'Side 1 player', MAX_TEXT_LENGTH);
-  const side2Player1 = requiredText(payload.side2Player1, 'Side 2 player', MAX_TEXT_LENGTH);
-  const side1Player2 = optionalText(payload.side1Player2, 'Side 1 partner', MAX_TEXT_LENGTH);
-  const side2Player2 = optionalText(payload.side2Player2, 'Side 2 partner', MAX_TEXT_LENGTH);
-  if (matchType === 'D' && (!side1Player2 || !side2Player2)) {
-    throw new Error('Enter both doubles partners.');
-  }
-
-  const score = requiredText(payload.score, 'Score', MAX_SCORE_LENGTH);
-  if (!isValidScore(score)) {
-    throw new Error('Enter game scores like 6-2,6-1 or 10-8.');
-  }
-  const handicap = optionalText(payload.handicap, 'Handicap played', MAX_HANDICAP_LENGTH);
-  if (handicap && handicapType === 'difference' && !/^[+-]?\d+(?:\.\d+)?$/.test(handicap)) {
-    throw new Error('Enter the handicap difference as a number.');
-  }
-  if (handicap && handicapType === 'odds' && !isValidOdds(handicap)) {
-    throw new Error('Enter two valid odds scores, such as -15/15 or -h15/15.');
-  }
-
   return {
     requestId,
     clientId,
-    matchType,
-    side1Player1,
-    side1Player2: matchType === 'D' ? side1Player2 : '',
-    side2Player1,
-    side2Player2: matchType === 'D' ? side2Player2 : '',
-    score,
-    handicapType,
-    handicap,
-    tournament: payload.tournament === true
+    ...validateMatchFields(payload)
   };
 }
 
@@ -344,56 +283,12 @@ export function validateUndoSubmission(payload: unknown): UndoSubmissionRequest 
   };
 }
 
-export function escapeForSheet(value: string): string {
-  return /^[=+\-@]/.test(value) ? `'${value}` : value;
-}
-
-export function isoWeekTabName(matchDate: string): string {
-  const parts = matchDate.split('-').map(Number);
-  const year = parts[0];
-  const month = parts[1];
-  const dayOfMonth = parts[2];
-  if (!year || !month || !dayOfMonth) {
-    throw new Error('Invalid match date.');
-  }
-
-  const date = new Date(Date.UTC(year, month - 1, dayOfMonth));
-  const dayOfWeek = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - dayOfWeek);
-  const isoYear = date.getUTCFullYear();
-  const yearStart = new Date(Date.UTC(isoYear, 0, 1));
-  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
-  return `${isoYear}-W${String(week).padStart(2, '0')}`;
-}
-
 function hasHoneypotValue(payload: unknown): boolean {
   return isRecord(payload) && Boolean(payload.website);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isIncluded<const T extends readonly string[]>(values: T, value: string): value is T[number] {
-  return values.includes(value as T[number]);
-}
-
-function requiredText(value: unknown, label: string, maxLength: number): string {
-  const text = optionalText(value, label, maxLength);
-  if (!text) {
-    throw new Error(`${label} is required.`);
-  }
-  return text;
-}
-
-function optionalText(value: unknown, label: string, maxLength: number): string {
-  const text = String(value ?? '')
-    .trim()
-    .replace(/\s+/g, ' ');
-  if (text.length > maxLength) {
-    throw new Error(`${label} is too long.`);
-  }
-  return text;
 }
 
 function enforceThrottle(clientId: string): void {
@@ -423,48 +318,6 @@ function getQueueSpreadsheet(): GoogleAppsScript.Spreadsheet.Spreadsheet {
 function currentWeekTabName(): string {
   const matchDate = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, 'yyyy-MM-dd');
   return isoWeekTabName(matchDate);
-}
-
-function ensureWeekSheet(
-  spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet,
-  tabName: string
-): GoogleAppsScript.Spreadsheet.Sheet {
-  let sheet = spreadsheet.getSheetByName(tabName);
-  if (!sheet) {
-    const sheets = spreadsheet.getSheets();
-    const firstSheet = sheets[0];
-    sheet = firstSheet && sheets.length === 1 && sheetIsEmpty(firstSheet) ? firstSheet : spreadsheet.insertSheet();
-    sheet.setName(tabName);
-  }
-
-  sheet.getRange(1, 1, sheet.getMaxRows(), QUEUE_HEADERS.length).setNumberFormat('@');
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow([...QUEUE_HEADERS]);
-    sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, QUEUE_HEADERS.length).setFontWeight('bold');
-  }
-  return sheet;
-}
-
-function sheetIsEmpty(sheet: GoogleAppsScript.Spreadsheet.Sheet): boolean {
-  return (
-    sheet.getLastRow() === 0 ||
-    (sheet.getLastRow() === 1 && sheet.getLastColumn() === 1 && !sheet.getRange(1, 1).getValue())
-  );
-}
-
-function findSubmissionByRequestId(spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet, requestId: string): string {
-  for (const sheet of spreadsheet.getSheets()) {
-    if (!WEEK_SHEET_NAME_PATTERN.test(sheet.getName()) || sheet.getLastRow() < 2) {
-      continue;
-    }
-    const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
-    const match = values.find(row => row[1] === requestId);
-    if (match) {
-      return String(match[0]);
-    }
-  }
-  return '';
 }
 
 function findSubmission(

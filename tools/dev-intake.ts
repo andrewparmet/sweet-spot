@@ -87,7 +87,8 @@ const server = http.createServer(async (request, response) => {
         rtoHandicapDifference: '',
         rtoMatchId: '',
         lastError: '',
-        updatedAt: timestamp
+        updatedAt: timestamp,
+        sanctioned: false
       };
       const stored = await appendLocalRecord(isoWeekTabName(matchDate), record);
       const result: MatchSubmissionResponse = {

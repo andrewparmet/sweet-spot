@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { requireValidatedToken, validatedSessionCacheSeconds, validateSessionClaims } from './server.ts';
+import {
+  matchWeighting,
+  requireValidatedToken,
+  rtoErrorDetail,
+  validatedSessionCacheSeconds,
+  validateSessionClaims
+} from './server.ts';
 
 const NOW = Date.parse('2026-09-17T12:00:00Z');
 const ACTIVE_ROLE = JSON.stringify({
@@ -85,5 +91,26 @@ describe('validateSessionClaims', () => {
         NOW
       )
     ).toThrow('not a Boston match administrator');
+  });
+});
+
+describe('rtoErrorDetail', () => {
+  it('reads plain text, messages, and validation problem details', () => {
+    expect(rtoErrorDetail('Player 123 is not a doubles player.')).toBe('Player 123 is not a doubles player.');
+    expect(rtoErrorDetail(JSON.stringify({ message: 'Duplicate match.' }))).toBe('Duplicate match.');
+    expect(
+      rtoErrorDetail(
+        JSON.stringify({ title: 'One or more validation errors occurred.', errors: { P2: ['P2 is invalid.'] } })
+      )
+    ).toBe('One or more validation errors occurred. P2 is invalid.');
+    expect(rtoErrorDetail('')).toBe('');
+  });
+});
+
+describe('matchWeighting', () => {
+  it('weights sanctioned, tournament, and friendly matches', () => {
+    expect(matchWeighting({ sanctioned: true, tournament: true })).toBe('X');
+    expect(matchWeighting({ sanctioned: false, tournament: true })).toBe('C');
+    expect(matchWeighting({ sanctioned: false, tournament: false })).toBe('S');
   });
 });

@@ -1,10 +1,14 @@
-import type { AdminQueueItem } from './api.ts';
+import { useState } from 'preact/hooks';
+import type { AdminQueueItem, QueueView } from './api.ts';
+import { EntryForm } from './entry-form.tsx';
+import type { EntryModel } from './entry-model.ts';
 import {
   formatEntryTimestamp,
   formatHistoryWeek,
   formatMatchDate,
   handicapLabel,
   isReviewable,
+  matchCategory,
   rtoMatchUrl,
   statusClass,
   teamName
@@ -19,13 +23,14 @@ interface AppProps {
   readonly session: SessionModel;
   readonly queue: QueueModel;
   readonly review: ReviewModel;
+  readonly entry: EntryModel;
 }
 
-export function App({ environment, session, queue, review }: AppProps) {
+export function App({ environment, session, queue, review, entry }: AppProps) {
   return (
     <>
       {session.state.value.signedIn ? (
-        <QueueScreen environment={environment} session={session} queue={queue} review={review} />
+        <QueueScreen environment={environment} session={session} queue={queue} review={review} entry={entry} />
       ) : (
         <LoginScreen environment={environment} session={session} />
       )}
@@ -90,9 +95,19 @@ function LoginScreen({ environment, session }: Pick<AppProps, 'environment' | 's
   );
 }
 
-function QueueScreen({ environment, session, queue, review }: AppProps) {
-  const { view, items, page, hasNext, week, loading } = queue.state.value;
-  const message = queue.message.value;
+function QueueScreen({ environment, session, queue, review, entry }: AppProps) {
+  const [entering, setEntering] = useState(false);
+  const { view, loading } = queue.state.value;
+
+  function showQueue(selected: QueueView): void {
+    if (entering && view === selected) {
+      void queue.load();
+    } else {
+      queue.selectView(selected);
+    }
+    setEntering(false);
+  }
+
   return (
     <main class="page-shell">
       <header class="page-header">
@@ -113,47 +128,76 @@ function QueueScreen({ environment, session, queue, review }: AppProps) {
             <button
               type="button"
               role="tab"
-              aria-selected={view === 'review'}
-              onClick={() => queue.selectView('review')}
+              aria-selected={!entering && view === 'review'}
+              onClick={() => showQueue('review')}
             >
               Needs review
             </button>
             <button
               type="button"
               role="tab"
-              aria-selected={view === 'history'}
-              onClick={() => queue.selectView('history')}
+              aria-selected={!entering && view === 'history'}
+              onClick={() => showQueue('history')}
             >
               History
             </button>
+            <button type="button" role="tab" aria-selected={entering} onClick={() => setEntering(true)}>
+              Enter score
+            </button>
           </div>
-          <button id="refresh-button" type="button" disabled={loading} onClick={() => void queue.load()}>
-            Refresh
-          </button>
+          {!entering && (
+            <button id="refresh-button" type="button" disabled={loading} onClick={() => void queue.load()}>
+              Refresh
+            </button>
+          )}
         </div>
-        <div class="queue-message" role="status" hidden={!message}>
-          {message}
-        </div>
-        <div class="queue-list">
-          {items.map(item => (
-            <MatchCard key={item.record.submissionId} item={item} onReview={() => void review.open(item)} />
-          ))}
-        </div>
-        <nav class="history-pagination" aria-label="History pages" hidden={!queue.showPagination.value}>
-          <button class="secondary-button" type="button" disabled={loading || page === 0} onClick={queue.previousPage}>
-            Previous
-          </button>
-          <span aria-live="polite">{formatHistoryWeek(week)}</span>
-          <button class="secondary-button" type="button" disabled={loading || !hasNext} onClick={queue.nextPage}>
-            Next
-          </button>
-        </nav>
+        {entering ? <EntryForm entry={entry} /> : <QueueContent queue={queue} review={review} />}
       </section>
     </main>
   );
 }
 
-function MatchCard({ item, onReview }: { readonly item: AdminQueueItem; readonly onReview: () => void }) {
+function QueueContent({ queue, review }: Pick<AppProps, 'queue' | 'review'>) {
+  const { items, page, hasNext, week, loading, deletingId } = queue.state.value;
+  const message = queue.message.value;
+  return (
+    <>
+      <div class="queue-message" role="status" hidden={!message}>
+        {message}
+      </div>
+      <div class="queue-list">
+        {items.map(item => (
+          <MatchCard
+            key={item.record.submissionId}
+            item={item}
+            deleting={deletingId === item.record.submissionId}
+            onReview={() => void review.open(item)}
+            onDelete={() => void queue.remove(item)}
+          />
+        ))}
+      </div>
+      <nav class="history-pagination" aria-label="History pages" hidden={!queue.showPagination.value}>
+        <button class="secondary-button" type="button" disabled={loading || page === 0} onClick={queue.previousPage}>
+          Previous
+        </button>
+        <span aria-live="polite">{formatHistoryWeek(week)}</span>
+        <button class="secondary-button" type="button" disabled={loading || !hasNext} onClick={queue.nextPage}>
+          Next
+        </button>
+      </nav>
+    </>
+  );
+}
+
+interface MatchCardProps {
+  readonly item: AdminQueueItem;
+  readonly deleting: boolean;
+  readonly onReview: () => void;
+  readonly onDelete: () => void;
+}
+
+function MatchCard({ item, deleting, onReview, onDelete }: MatchCardProps) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const { record } = item;
   const matchUrl = rtoMatchUrl(record.rtoMatchId);
   return (
@@ -178,7 +222,7 @@ function MatchCard({ item, onReview }: { readonly item: AdminQueueItem; readonly
         <dt>{handicapLabel(record)}</dt>
         <dd>{record.handicapOriginal || 'Level'}</dd>
         <dt>Type</dt>
-        <dd>{record.tournament ? 'Tournament' : 'Friendly'}</dd>
+        <dd>{matchCategory(record)}</dd>
         {record.rtoMatchId && (
           <>
             <dt>RTO match</dt>
@@ -202,9 +246,25 @@ function MatchCard({ item, onReview }: { readonly item: AdminQueueItem; readonly
       </dl>
       {isReviewable(record) && (
         <div class="card-footer">
-          <button class="card-action" type="button" onClick={onReview}>
-            Review
-          </button>
+          {confirmingDelete ? (
+            <>
+              <button class="text-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>
+                Keep
+              </button>
+              <button class="card-action danger-action" type="button" disabled={deleting} onClick={onDelete}>
+                {deleting ? 'Deleting…' : 'Confirm delete'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button class="text-button" type="button" onClick={() => setConfirmingDelete(true)}>
+                Delete
+              </button>
+              <button class="card-action" type="button" onClick={onReview}>
+                Review
+              </button>
+            </>
+          )}
         </div>
       )}
     </article>

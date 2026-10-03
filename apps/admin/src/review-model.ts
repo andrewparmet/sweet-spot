@@ -1,6 +1,7 @@
 import { computed, signal } from '@preact/signals';
-import { isValidScore, type MatchType } from '../../../packages/shared/src/match.ts';
-import type { AdminQueueItem, DirectoryPlayer, ReviewedMatchRequest } from './api.ts';
+import { isValidOdds, isValidScore, type MatchType } from '../../../packages/shared/src/match.ts';
+import type { QueueRecord } from '../../../packages/shared/src/queue.ts';
+import type { AdminQueueItem, DirectoryPlayer, ReviewedMatchRequest, SanctionedMatch } from './api.ts';
 import { playerSides } from './format.ts';
 import { playerMatchScore, reasonablePlayerMatches } from './player-search.ts';
 
@@ -23,6 +24,9 @@ export interface ReviewForm {
   readonly item: AdminQueueItem;
   readonly boston: readonly DirectoryPlayer[];
   readonly score: string;
+  readonly handicap: string;
+  readonly sanctionedMatches: readonly SanctionedMatch[];
+  readonly sanctionedMatch: string;
   readonly slots: readonly PlayerSlot[];
   readonly error: string | undefined;
 }
@@ -42,6 +46,7 @@ export interface PlayerOptions {
 export interface ReviewDependencies {
   readonly loadBostonPlayers: (matchType: MatchType) => Promise<DirectoryPlayer[]>;
   readonly expandPlayerSearch: (matchType: MatchType, playerName: string) => Promise<DirectoryPlayer[]>;
+  readonly loadSanctionedMatches: () => Promise<SanctionedMatch[]>;
   readonly submitReviewedMatch: (request: ReviewedMatchRequest) => Promise<void>;
   readonly onSubmitted: () => void;
 }
@@ -55,6 +60,8 @@ export function createReviewModel(dependencies: ReviewDependencies) {
     return (
       current.phase === 'editing' &&
       isValidScore(current.score) &&
+      isValidHandicap(current.item.record, current.handicap) &&
+      (!current.item.record.sanctioned || Boolean(current.sanctionedMatch)) &&
       current.slots.length > 0 &&
       current.slots.every(slot => slot.selectedId)
     );
@@ -81,14 +88,27 @@ export function createReviewModel(dependencies: ReviewDependencies) {
   async function open(item: AdminQueueItem): Promise<void> {
     state.value = { phase: 'loading', item };
     try {
-      const boston = await dependencies.loadBostonPlayers(item.record.matchType);
+      const [boston, sanctionedMatches] = await Promise.all([
+        dependencies.loadBostonPlayers(item.record.matchType),
+        item.record.sanctioned ? dependencies.loadSanctionedMatches() : []
+      ]);
       if (state.value.phase !== 'loading' || state.value.item !== item) {
         return;
       }
       const slots = playerSides(item.record).flatMap((names, sideIndex) =>
         names.map(name => newSlot(sideIndex + 1, name, boston))
       );
-      state.value = { phase: 'editing', item, boston, score: item.record.scoreOriginal, slots, error: undefined };
+      state.value = {
+        phase: 'editing',
+        item,
+        boston,
+        score: item.record.scoreOriginal,
+        handicap: item.record.handicapOriginal,
+        sanctionedMatches,
+        sanctionedMatch: '',
+        slots,
+        error: undefined
+      };
     } catch (error) {
       if (state.value.phase === 'loading' && state.value.item === item) {
         state.value = { phase: 'failed', item, error: errorMessage(error, 'The directory could not be loaded.') };
@@ -110,6 +130,20 @@ export function createReviewModel(dependencies: ReviewDependencies) {
     const form = currentForm();
     if (form) {
       updateForm(form.item, () => ({ score }));
+    }
+  }
+
+  function setHandicap(handicap: string): void {
+    const form = currentForm();
+    if (form) {
+      updateForm(form.item, () => ({ handicap }));
+    }
+  }
+
+  function selectSanctionedMatch(sanctionedMatch: string): void {
+    const form = currentForm();
+    if (form) {
+      updateForm(form.item, () => ({ sanctionedMatch }));
     }
   }
 
@@ -204,7 +238,9 @@ export function createReviewModel(dependencies: ReviewDependencies) {
         submissionId: form.item.record.submissionId,
         tabName: form.item.tabName,
         players,
-        score: form.score.trim()
+        score: form.score.trim(),
+        handicap: form.handicap.trim(),
+        sanctionedMatch: form.item.record.sanctioned ? form.sanctionedMatch : ''
       });
       if (currentForm()?.item === form.item) {
         state.value = { phase: 'closed' };
@@ -222,6 +258,8 @@ export function createReviewModel(dependencies: ReviewDependencies) {
     close,
     reset,
     setScore,
+    setHandicap,
+    selectSanctionedMatch,
     selectPlayer,
     toggleManualSearch,
     setManualQuery,
@@ -229,6 +267,14 @@ export function createReviewModel(dependencies: ReviewDependencies) {
     searchManually,
     submit
   };
+}
+
+export function isValidHandicap(record: QueueRecord, handicap: string): boolean {
+  const value = handicap.trim();
+  if (!value) {
+    return true;
+  }
+  return record.handicapEntryType === 'difference' ? /^[+-]?\d+(?:\.\d+)?$/.test(value) : isValidOdds(value);
 }
 
 export function playerOptions(

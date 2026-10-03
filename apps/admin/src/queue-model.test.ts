@@ -7,6 +7,7 @@ const item = { tabName: '2026-W38', record: { submissionId: 'submission-1' } } a
 function dependencies(overrides: Partial<QueueDependencies> = {}): QueueDependencies {
   return {
     loadAdminQueue: async request => ({ items: [item], page: request.page, hasNext: true, week: '2026-W38' }),
+    deleteQueuedMatch: async () => undefined,
     isAuthenticationError: () => false,
     onAuthenticationError: () => undefined,
     ...overrides
@@ -70,6 +71,27 @@ describe('createQueueModel', () => {
     );
     await queue.load();
     expect(onAuthenticationError).toHaveBeenCalledWith('Sign in again.');
+  });
+
+  it('removes a deleted item and reports a failed deletion', async () => {
+    const deleteQueuedMatch = vi.fn(async () => undefined);
+    const queue = createQueueModel(dependencies({ deleteQueuedMatch }));
+    await queue.load();
+    await queue.remove(item);
+    expect(deleteQueuedMatch).toHaveBeenCalledWith(item);
+    expect(queue.state.value).toMatchObject({ items: [], deletingId: undefined });
+
+    const failing = createQueueModel(
+      dependencies({
+        deleteQueuedMatch: async () => {
+          throw new Error('That submission could not be found.');
+        }
+      })
+    );
+    await failing.load();
+    await failing.remove(item);
+    expect(failing.state.value).toMatchObject({ items: [item], deletingId: undefined });
+    expect(failing.message.value).toBe('That submission could not be found.');
   });
 
   it('ignores a load that finishes after the queue is reset', async () => {

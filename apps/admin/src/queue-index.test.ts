@@ -33,7 +33,8 @@ function queueRecord(submissionId: string, status: QueueRecord['status'], submit
     rtoHandicapDifference: '',
     rtoMatchId: '',
     lastError: '',
-    updatedAt: submittedAt
+    updatedAt: submittedAt,
+    sanctioned: false
   };
 }
 

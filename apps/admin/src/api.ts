@@ -1,4 +1,4 @@
-import type { MatchType } from '../../../packages/shared/src/match.ts';
+import type { HandicapEntryType, MatchType } from '../../../packages/shared/src/match.ts';
 import type { QueueRecord } from '../../../packages/shared/src/queue.ts';
 
 export interface AdminQueueItem {
@@ -11,6 +11,11 @@ export interface DirectoryPlayer {
   readonly name: string;
   readonly handicap: number;
   readonly isBoston: boolean;
+}
+
+export interface SanctionedMatch {
+  readonly id: string;
+  readonly description: string;
 }
 
 export interface ReviewedPlayer {
@@ -37,6 +42,23 @@ export interface ReviewedMatchRequest {
   readonly tabName: string;
   readonly players: readonly ReviewedPlayer[];
   readonly score: string;
+  readonly handicap: string;
+  readonly sanctionedMatch: string;
+}
+
+export interface AdminEntryRequest {
+  readonly requestId: string;
+  readonly matchType: MatchType;
+  readonly matchDate: string;
+  readonly side1Player1: string;
+  readonly side1Player2: string;
+  readonly side2Player1: string;
+  readonly side2Player2: string;
+  readonly score: string;
+  readonly handicapType: HandicapEntryType;
+  readonly handicap: string;
+  readonly tournament: boolean;
+  readonly sanctioned: boolean;
 }
 
 const SESSION_TOKEN_KEY = 'sweet-spot-rto-token';
@@ -122,6 +144,17 @@ export async function loadPlayerDirectory(matchType: MatchType, playerName: stri
   return players;
 }
 
+export async function loadSanctionedMatches(): Promise<SanctionedMatch[]> {
+  const body = await callServer<{
+    readonly matches?: SanctionedMatch[];
+    readonly message?: string;
+  }>('loadSanctionedMatches', requiredToken());
+  if (!body.matches) {
+    throw new Error(body.message || 'The sanctioned match list could not be loaded.');
+  }
+  return body.matches;
+}
+
 export async function submitReviewedMatch(request: ReviewedMatchRequest): Promise<void> {
   const body = await callServer<{ readonly submitted?: boolean; readonly message?: string }>(
     'submitReviewedMatch',
@@ -130,6 +163,39 @@ export async function submitReviewedMatch(request: ReviewedMatchRequest): Promis
   );
   if (!body.submitted) {
     throw new Error(body.message || 'The submission failed.');
+  }
+}
+
+export async function submitAdminEntry(request: AdminEntryRequest): Promise<void> {
+  const body = await callServer<{ readonly submissionId?: string; readonly message?: string }>(
+    'submitAdminEntry',
+    requiredToken(),
+    request
+  );
+  if (!body.submissionId) {
+    throw new Error(body.message || 'The score could not be added.');
+  }
+}
+
+export function bostonToday(): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'America/New_York',
+    year: 'numeric'
+  }).formatToParts(new Date());
+  const part = (type: Intl.DateTimeFormatPartTypes): string => parts.find(value => value.type === type)?.value ?? '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+export async function deleteQueuedMatch(item: AdminQueueItem): Promise<void> {
+  const body = await callServer<{ readonly deleted?: boolean; readonly message?: string }>(
+    'deleteQueuedMatch',
+    requiredToken(),
+    { submissionId: item.record.submissionId, tabName: item.tabName }
+  );
+  if (!body.deleted) {
+    throw new Error(body.message || 'The submission could not be deleted.');
   }
 }
 
@@ -170,7 +236,10 @@ async function callLocalServer<T>(functionName: string, args: readonly unknown[]
     loadAdminQueue: { method: 'GET', path: '/api/queue' },
     loadBostonDirectory: { method: 'GET', path: '/api/boston-directory' },
     loadPlayerDirectory: { method: 'GET', path: '/api/directory' },
-    submitReviewedMatch: { method: 'POST', path: '/api/submissions/demo' }
+    loadSanctionedMatches: { method: 'GET', path: '/api/sanctioned-matches' },
+    submitReviewedMatch: { method: 'POST', path: '/api/submissions/demo' },
+    deleteQueuedMatch: { method: 'POST', path: '/api/submissions/delete' },
+    submitAdminEntry: { method: 'POST', path: '/api/entries' }
   };
   const route = routes[functionName];
   if (!route) {

@@ -2,7 +2,10 @@ import { readFile } from 'node:fs/promises';
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { appsScriptComponents } from './components.ts';
-import { demoSubmitLocalRecord, readLocalTabs } from './local-queue.ts';
+import { randomUUID } from 'node:crypto';
+import { appendLocalRecord, deleteLocalRecord, demoSubmitLocalRecord, readLocalTabs } from './local-queue.ts';
+import { isoWeekTabName, newQueueRecord } from '../packages/shared/src/queue-sheet.ts';
+import { requiredText, validateMatchDate, validateMatchFields } from '../packages/shared/src/submission.ts';
 import { normalizeScore } from '../packages/shared/src/match.ts';
 import { loadQueuePage, withHistoryTab, type QueueIndex } from '../apps/admin/src/queue-index.ts';
 
@@ -69,6 +72,14 @@ const server = http.createServer(async (request, response) => {
       send(response, 200, 'application/json', JSON.stringify({ players: directory }));
       return;
     }
+    if (request.method === 'GET' && request.url === '/api/sanctioned-matches') {
+      const matches = [
+        { id: '501', description: '2026 Boston Open' },
+        { id: '502', description: '2026 US Amateur Doubles' }
+      ];
+      send(response, 200, 'application/json', JSON.stringify({ matches }));
+      return;
+    }
     if (request.method === 'GET' && request.url === '/api/boston-directory') {
       send(response, 200, 'application/json', JSON.stringify({ players: directory.filter(player => player.isBoston) }));
       return;
@@ -95,6 +106,30 @@ const server = http.createServer(async (request, response) => {
         queueIndex = withHistoryTab(queueIndex, payload.tabName);
       }
       send(response, 200, 'application/json', JSON.stringify({ submitted: true }));
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/api/entries') {
+      const payload = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      const now = new Date();
+      const today = now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      const record = newQueueRecord(validateMatchFields(payload), {
+        submissionId: randomUUID(),
+        requestId: requiredText(payload.requestId, 'Request ID', 64),
+        timestamp: now.toISOString(),
+        matchDate: validateMatchDate(payload.matchDate, today),
+        sanctioned: payload.sanctioned === true
+      });
+      const stored = await appendLocalRecord(isoWeekTabName(today), record);
+      send(response, 200, 'application/json', JSON.stringify({ submissionId: stored.submissionId }));
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/api/submissions/delete') {
+      const payload = JSON.parse(await readBody(request)) as { readonly submissionId?: string };
+      if (!payload.submissionId) {
+        throw new Error('The deletion request is incomplete.');
+      }
+      await deleteLocalRecord(payload.submissionId);
+      send(response, 200, 'application/json', JSON.stringify({ deleted: true }));
       return;
     }
     send(response, 404, 'text/plain; charset=utf-8', 'Not found');

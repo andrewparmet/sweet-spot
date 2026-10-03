@@ -27,7 +27,8 @@ export const QUEUE_HEADERS = Object.freeze([
   'RTO Handicap Difference',
   'RTO Match ID',
   'Last Error',
-  'Updated At'
+  'Updated At',
+  'Sanctioned'
 ]);
 
 export interface QueueRecord {
@@ -52,6 +53,7 @@ export interface QueueRecord {
   readonly rtoMatchId: string;
   readonly lastError: string;
   readonly updatedAt: string;
+  readonly sanctioned: boolean;
 }
 
 export function queueRecordToRow(record: QueueRecord): (string | number | boolean)[] {
@@ -76,7 +78,8 @@ export function queueRecordToRow(record: QueueRecord): (string | number | boolea
     record.rtoHandicapDifference,
     record.rtoMatchId,
     record.lastError,
-    record.updatedAt
+    record.updatedAt,
+    record.sanctioned
   ];
 }
 

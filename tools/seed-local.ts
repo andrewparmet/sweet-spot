@@ -27,6 +27,7 @@ function sample(overrides: SampleOverrides): QueueRecord {
     rtoHandicapDifference: '',
     rtoMatchId: '',
     lastError: '',
+    sanctioned: false,
     ...overrides
   };
 }
@@ -55,6 +56,7 @@ const week38: QueueRecord[] = [
     handicapEntryType: 'difference',
     handicapOriginal: '-4',
     tournament: true,
+    sanctioned: true,
     status: 'Needs review',
     updatedAt: '2026-09-17T08:22:00-04:00'
   }),

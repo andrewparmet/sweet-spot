@@ -102,3 +102,22 @@ export async function demoSubmitLocalRecord(
   }
   throw new Error('That submission could not be found.');
 }
+
+export async function deleteLocalRecord(submissionId: string): Promise<void> {
+  const tabs = await readLocalTabs();
+  for (const [tabName, records] of tabs) {
+    const record = records.find(candidate => candidate.submissionId === submissionId);
+    if (!record) {
+      continue;
+    }
+    if (record.status === 'Submitted' || record.status === 'Needs reconciliation') {
+      throw new Error('That score may already be in RTO and cannot be deleted here.');
+    }
+    await writeLocalTab(
+      tabName,
+      records.filter(candidate => candidate !== record)
+    );
+    return;
+  }
+  throw new Error('That submission could not be found.');
+}

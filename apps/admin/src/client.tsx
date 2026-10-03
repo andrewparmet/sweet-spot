@@ -1,15 +1,20 @@
 import { render } from 'preact';
 import {
   adminLogin,
+  bostonToday,
   clearSessionToken,
+  deleteQueuedMatch,
   isAuthenticationError,
   loadAdminQueue,
+  loadSanctionedMatches,
   saveSessionToken,
   sessionToken,
+  submitAdminEntry,
   submitReviewedMatch
 } from './api.ts';
 import { App } from './app.tsx';
 import { clearDirectoryCache, expandPlayerSearch, loadBostonPlayers, preloadBostonPlayers } from './directory.ts';
+import { createEntryModel } from './entry-model.ts';
 import { createQueueModel } from './queue-model.ts';
 import { createReviewModel } from './review-model.ts';
 import { createSessionModel } from './session-model.ts';
@@ -20,15 +25,18 @@ enforceTrustedFrame();
 
 const queue = createQueueModel({
   loadAdminQueue,
+  deleteQueuedMatch,
   isAuthenticationError,
   onAuthenticationError: message => session.signOut(message)
 });
 const review = createReviewModel({
   loadBostonPlayers,
   expandPlayerSearch,
+  loadSanctionedMatches,
   submitReviewedMatch,
   onSubmitted: () => void queue.load()
 });
+const entry = createEntryModel({ randomId: () => crypto.randomUUID(), today: bostonToday, submitAdminEntry });
 const session = createSessionModel({
   hasSession: () => Boolean(sessionToken()),
   adminLogin,
@@ -45,7 +53,7 @@ const session = createSessionModel({
 });
 
 render(
-  <App environment={SWEET_SPOT_ENVIRONMENT} session={session} queue={queue} review={review} />,
+  <App environment={SWEET_SPOT_ENVIRONMENT} session={session} queue={queue} review={review} entry={entry} />,
   requiredElement('app')
 );
 if (session.state.value.signedIn) {

@@ -280,10 +280,110 @@ h2 {
 .queue-tabs {
   display: grid;
   width: min(100%, 28rem);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.3rem;
   padding: 0.3rem;
   border-radius: 0.8rem;
+  background: var(--accent-soft);
+}
+
+.queue-tabs.entry-match-type {
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.queue-tabs button[aria-checked='true'] {
+  color: white;
+  background: var(--accent);
+  box-shadow: 0 0.2rem 0.6rem rgba(15, 77, 64, 0.18);
+}
+
+.entry-form {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--surface);
+}
+
+.entry-side {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.entry-side legend {
+  margin-bottom: 0.5rem;
+  padding: 0;
+  font-weight: 800;
+}
+
+.entry-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.entry-field > span:first-child {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.entry-field input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  color: var(--ink);
+  background: white;
+  font: inherit;
+}
+
+.entry-field input[aria-invalid='true'] {
+  border-color: var(--error);
+}
+
+.entry-field input:focus-visible,
+.entry-check input:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.field-error {
+  color: var(--error);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.entry-check {
+  display: flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.65rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.entry-check input {
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--accent);
+}
+
+.entry-message {
+  padding: 0.75rem;
+  border-radius: 0.65rem;
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+.entry-message.notice {
+  color: var(--accent);
   background: var(--accent-soft);
 }
 
@@ -446,6 +546,7 @@ h2 {
 .card-footer {
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
   margin-top: 0.9rem;
 }
 
@@ -471,6 +572,17 @@ h2 {
   border: 1px solid var(--accent);
   color: white;
   background: var(--accent);
+}
+
+.card-action.danger-action {
+  border-color: var(--error);
+  background: var(--error);
+}
+
+.card-action:disabled,
+.text-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .secondary-button {
@@ -548,21 +660,6 @@ dialog::backdrop {
   text-align: center;
 }
 
-.dialog-handicap {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  margin: -0.35rem 0 1rem;
-  padding: 0 0.2rem;
-}
-
-.dialog-handicap span {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 750;
-}
-
 .score-override {
   display: grid;
   gap: 0.35rem;
@@ -575,7 +672,8 @@ dialog::backdrop {
   font-weight: 750;
 }
 
-.score-override input {
+.score-override input,
+.score-override select {
   width: 100%;
   min-height: 3rem;
   padding: 0 0.75rem;
@@ -585,7 +683,12 @@ dialog::backdrop {
   background: white;
 }
 
-.score-override input:focus-visible {
+.score-override input[aria-invalid='true'] {
+  border-color: var(--error);
+}
+
+.score-override input:focus-visible,
+.score-override select:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }

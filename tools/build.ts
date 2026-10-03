@@ -27,16 +27,12 @@ async function buildAdmin(): Promise<void> {
   const config = JSON.parse(await readFile(deployment.configFile, 'utf8')) as {
     readonly liveRtoSubmission?: unknown;
     readonly queueSpreadsheetId?: unknown;
-    readonly tournamentWeightCode?: unknown;
   };
   if (typeof config.queueSpreadsheetId !== 'string' || !config.queueSpreadsheetId) {
     throw new Error(`No queueSpreadsheetId is defined in ${deployment.configFile}.`);
   }
   if (config.liveRtoSubmission !== (buildEnvironment === 'production')) {
     throw new Error(`${deployment.configFile} has the wrong liveRtoSubmission value for ${buildEnvironment}.`);
-  }
-  if (config.tournamentWeightCode !== 'X' && config.tournamentWeightCode !== 'C') {
-    throw new Error(`${deployment.configFile} must define tournamentWeightCode as X or C.`);
   }
   if (buildEnvironment === 'production') {
     const stagingConfig = JSON.parse(
@@ -59,7 +55,6 @@ async function buildAdmin(): Promise<void> {
   const serverBundle = outputText(serverResult.outputFiles, '.js');
   const spreadsheetId = JSON.stringify(config.queueSpreadsheetId);
   const liveRtoSubmission = JSON.stringify(config.liveRtoSubmission);
-  const tournamentWeightCode = JSON.stringify(config.tournamentWeightCode);
   const appsScriptWrappers = `
 function doGet() {
   return SweetSpotAdminServer.doGet();
@@ -77,8 +72,20 @@ function loadBostonDirectory(token, matchType) {
   return SweetSpotAdminServer.loadBostonDirectory(token, matchType);
 }
 
+function loadSanctionedMatches(token) {
+  return SweetSpotAdminServer.loadSanctionedMatches(token);
+}
+
 function loadPlayerDirectory(token, matchType, playerNames) {
   return SweetSpotAdminServer.loadPlayerDirectory(token, matchType, playerNames);
+}
+
+function submitAdminEntry(token, payload) {
+  return SweetSpotAdminServer.submitAdminEntry(token, payload, ${spreadsheetId});
+}
+
+function deleteQueuedMatch(token, payload) {
+  return SweetSpotAdminServer.deleteQueuedMatch(token, payload, ${spreadsheetId});
 }
 
 function submitReviewedMatch(token, payload) {
@@ -86,8 +93,7 @@ function submitReviewedMatch(token, payload) {
     token,
     payload,
     ${spreadsheetId},
-    ${liveRtoSubmission},
-    ${tournamentWeightCode}
+    ${liveRtoSubmission}
   );
 }
 `;
