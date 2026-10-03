@@ -48,8 +48,8 @@ a submission right after sending it, which marks the row `Withdrawn`.
 
 Score Review's **Enter score** tab adds scores to the queue with a match date and a sanctioned tournament flag, and clears the
 players after each one so an administrator can enter several in a row. Rows land in the week tab of the day they are entered,
-whatever their match date. Score Review can also delete a score that has not reached RTO, and lets the reviewer override the
-score and odds. A sanctioned score requires choosing its RTO sanctioned match before submitting.
+whatever their match date. Score Review can delete a score from either view, which marks its row `Deleted` and, for a submitted score, deletes the RTO
+match. It also lets the reviewer override the score and odds. A sanctioned score requires choosing its RTO sanctioned match before submitting.
 
 Score Review shows every score that is neither `Submitted` nor `Withdrawn` under **Needs review**, whatever its week, and
 the rest under **History**, one week per page. It keeps an index of which tabs hold each kind of score in its script

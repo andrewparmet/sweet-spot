@@ -1,3 +1,5 @@
+import { normalizeOdds } from '../../../packages/shared/src/match.ts';
+
 export const DUPLICATE_MATCH_MESSAGE = 'RTO flagged this as a possible duplicate match.';
 
 export function isDuplicateMatchError(message: string): boolean {
@@ -18,7 +20,7 @@ export function resolvePlayedHandicapDifference(
   rows: readonly OddsReferenceRow[],
   suggestedDifference: number
 ): number {
-  const [teamOne, teamTwo] = odds.split('/').map(normalizeEnteredOddsComponent);
+  const [teamOne, teamTwo] = normalizeOdds(odds).split('/').map(normalizeEnteredOddsComponent);
   if (!teamOne || !teamTwo) {
     throw new Error('The entered odds could not be interpreted.');
   }

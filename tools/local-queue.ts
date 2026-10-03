@@ -2,7 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { QueueRecord } from '../packages/shared/src/queue.ts';
 import { repositoryRoot } from './components.ts';
-import { wasRejectedByRto } from '../apps/admin/src/format.ts';
+import { isDeletable } from '../apps/admin/src/format.ts';
 
 export const localDataDirectory = path.join(repositoryRoot, 'local-data');
 
@@ -55,6 +55,9 @@ export async function withdrawLocalRecord(submissionId: string, requestId: strin
     if (!record) {
       break;
     }
+    if (record.status === 'Deleted') {
+      throw new Error('That submission was deleted by a match administrator.');
+    }
     if (record.status === 'Submitted' || record.status === 'Needs reconciliation') {
       throw new Error('That score has already been submitted to RTO and can no longer be undone here.');
     }
@@ -86,7 +89,7 @@ export async function demoSubmitLocalRecord(
     if (!record) {
       break;
     }
-    if (record.status === 'Submitted' || record.status === 'Withdrawn') {
+    if (record.status === 'Submitted' || record.status === 'Withdrawn' || record.status === 'Deleted') {
       throw new Error('That score is not available for demo submission.');
     }
     records[recordIndex] = {
@@ -111,12 +114,14 @@ export async function deleteLocalRecord(submissionId: string): Promise<void> {
     if (!record) {
       continue;
     }
-    if (record.status === 'Submitted' || (record.status === 'Needs reconciliation' && !wasRejectedByRto(record))) {
-      throw new Error('That score may already be in RTO and cannot be deleted here.');
+    if (!isDeletable(record)) {
+      throw new Error('That score may already be in RTO. Reconcile it before deleting.');
     }
     await writeLocalTab(
       tabName,
-      records.filter(candidate => candidate !== record)
+      records.map(candidate =>
+        candidate === record ? { ...record, status: 'Deleted', updatedAt: new Date().toISOString() } : candidate
+      )
     );
     return;
   }

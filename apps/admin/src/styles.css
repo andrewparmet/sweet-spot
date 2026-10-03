@@ -574,6 +574,13 @@ h2 {
   background: var(--accent);
 }
 
+.card-footer-note {
+  flex: 1;
+  align-self: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .card-action.danger-action {
   border-color: var(--error);
   background: var(--error);

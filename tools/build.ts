@@ -85,7 +85,7 @@ function submitAdminEntry(token, payload) {
 }
 
 function deleteQueuedMatch(token, payload) {
-  return SweetSpotAdminServer.deleteQueuedMatch(token, payload, ${spreadsheetId});
+  return SweetSpotAdminServer.deleteQueuedMatch(token, payload, ${spreadsheetId}, ${liveRtoSubmission});
 }
 
 function submitReviewedMatch(token, payload) {

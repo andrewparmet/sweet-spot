@@ -250,6 +250,9 @@ export function undoSubmission(payload: unknown): UndoSubmissionResponse {
     if (status === 'Submitted' || status === 'Ready' || status === 'Needs reconciliation') {
       throw new Error('That score has already been submitted to RTO and can no longer be undone here.');
     }
+    if (status === 'Deleted') {
+      throw new Error('That submission was deleted by a match administrator.');
+    }
     if (status !== 'Withdrawn') {
       const timestamp = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
       statusCell.setValue('Withdrawn');

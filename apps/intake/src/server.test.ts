@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidOdds, isValidScore, scoreError } from '../../../packages/shared/src/match.ts';
+import { isValidOdds, isValidScore, normalizeOdds, scoreError } from '../../../packages/shared/src/match.ts';
 import {
   escapeForSheet,
   isoWeekTabName,
@@ -137,8 +137,23 @@ describe('odds validation', () => {
     }
   );
 
-  it.each(['10', '15', '10/15', '-40/0', 'half15/15', '-half15/15', 'h0/15', '15//0'])('rejects %s', odds => {
-    expect(isValidOdds(odds)).toBe(false);
+  it.each(['10', '15', '10/15', '-40/0', 'half15/15', '-half15/15', 'h0/15', '15//0', '-15', '15-', '-40-0'])(
+    'rejects %s',
+    odds => {
+      expect(isValidOdds(odds)).toBe(false);
+    }
+  );
+
+  it.each([
+    ['15-0', '15/0'],
+    ['-15-0', '-15/0'],
+    ['-15-15', '-15/15'],
+    ['15--15', '15/-15'],
+    ['-h 15 – 30', '-h15/30'],
+    [' q15 / 40 ', 'q15/40']
+  ])('normalizes %s to %s', (odds, normalized) => {
+    expect(isValidOdds(odds)).toBe(true);
+    expect(normalizeOdds(odds)).toBe(normalized);
   });
 });
 

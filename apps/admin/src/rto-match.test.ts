@@ -14,6 +14,10 @@ describe('resolvePlayedHandicapDifference', () => {
     expect(resolvePlayedHandicapDifference('15/-15', rows, 15.1)).toBe(15);
   });
 
+  it('accepts odds separated by a dash', () => {
+    expect(resolvePlayedHandicapDifference('15--15', rows, 15.8)).toBe(16);
+  });
+
   it('reverses the difference when side one owes', () => {
     expect(resolvePlayedHandicapDifference('-15/15', rows, -15.8)).toBe(-16);
   });

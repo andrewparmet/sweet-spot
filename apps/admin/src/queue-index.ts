@@ -45,6 +45,10 @@ export function isHistoryRecord(record: QueueRecord): boolean {
   return record.status === 'Submitted' || record.status === 'Withdrawn';
 }
 
+export function isPendingRecord(record: QueueRecord): boolean {
+  return !isHistoryRecord(record) && record.status !== 'Deleted';
+}
+
 /**
  * Loads one queue page, reading only the week tabs `index` cannot rule out, and returns the updated index.
  *
@@ -72,11 +76,7 @@ export function loadQueuePage(
     }
     const records = tabs.read(name);
     readTabs.set(name, records);
-    toggle(
-      pendingTabs,
-      name,
-      records.some(record => !isHistoryRecord(record))
-    );
+    toggle(pendingTabs, name, records.some(isPendingRecord));
     toggle(historyTabs, name, records.some(isHistoryRecord));
     return records;
   };
@@ -93,9 +93,7 @@ export function loadQueuePage(
       summarize(name);
     }
     const items = [...readTabs]
-      .flatMap(([tabName, records]) =>
-        records.filter(record => !isHistoryRecord(record)).map(record => ({ tabName, record }))
-      )
+      .flatMap(([tabName, records]) => records.filter(isPendingRecord).map(record => ({ tabName, record })))
       .sort((left, right) => right.record.submittedAt.localeCompare(left.record.submittedAt));
     queuePage = { items, page: 0, hasNext: false };
   } else {

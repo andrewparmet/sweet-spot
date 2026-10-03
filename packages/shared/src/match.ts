@@ -4,7 +4,7 @@ export const HANDICAP_ENTRY_TYPES = ['odds', 'difference'] as const;
 const ODDS_POINT = '(?:0|15|30|40)';
 const ODDS_FRACTION = '(?:h|q)\\s*(?:15|30|40)';
 const ODDS_COMPONENT = `(?:${ODDS_POINT}|${ODDS_FRACTION}|-(?:15|30)|-${ODDS_FRACTION})`;
-const ODDS_PATTERN = new RegExp(`^${ODDS_COMPONENT}\\s*\\/\\s*${ODDS_COMPONENT}$`, 'i');
+const ODDS_PATTERN = new RegExp(`^(${ODDS_COMPONENT})\\s*[-/–—]\\s*(${ODDS_COMPONENT})$`, 'i');
 const SCORE_PATTERN = /^\d+\s*[-/–—]\s*\d+(?:(?:\s*,\s*|\s+)\d+\s*[-/–—]\s*\d+)*$/;
 
 export type MatchType = (typeof MATCH_TYPES)[number];
@@ -12,6 +12,14 @@ export type HandicapEntryType = (typeof HANDICAP_ENTRY_TYPES)[number];
 
 export function isValidOdds(value: string): boolean {
   return ODDS_PATTERN.test(value.trim());
+}
+
+/**
+ * Rewrites valid odds such as `15-0` or `-h15 / 15` as `15/0` or `-h15/15`, and returns other input trimmed.
+ */
+export function normalizeOdds(value: string): string {
+  const match = ODDS_PATTERN.exec(value.trim());
+  return match ? `${match[1]?.replace(/\s+/g, '')}/${match[2]?.replace(/\s+/g, '')}` : value.trim();
 }
 
 export function isValidScore(value: string): boolean {

@@ -73,6 +73,21 @@ const weeks = {
 };
 
 describe('loadQueuePage', () => {
+  it('leaves deleted records out of both views', () => {
+    const { tabs } = spreadsheet({
+      '2026-W38': [
+        queueRecord('deleted-review', 'Deleted', '2026-09-17T12:00:00-04:00'),
+        queueRecord('history-new', 'Submitted', '2026-09-16T12:00:00-04:00')
+      ]
+    });
+    const review = loadQueuePage(tabs, undefined, 'review', 0, NOW);
+    const history = loadQueuePage(tabs, undefined, 'history', 0, NOW);
+
+    expect(review.page.items).toEqual([]);
+    expect(review.index.pendingTabs).toEqual([]);
+    expect(history.page.items.map(item => item.record.submissionId)).toEqual(['history-new']);
+  });
+
   it('builds the index from every tab when none exists', () => {
     const { tabs, reads } = spreadsheet(weeks);
     const result = loadQueuePage(tabs, undefined, 'review', 0, NOW);

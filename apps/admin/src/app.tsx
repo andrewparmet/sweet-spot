@@ -7,6 +7,7 @@ import {
   formatHistoryWeek,
   formatMatchDate,
   handicapLabel,
+  isDeletable,
   isReviewable,
   matchCategory,
   rtoMatchUrl,
@@ -244,10 +245,13 @@ function MatchCard({ item, deleting, onReview, onDelete }: MatchCardProps) {
           </>
         )}
       </dl>
-      {isReviewable(record) && (
+      {isDeletable(record) && (
         <div class="card-footer">
           {confirmingDelete ? (
             <>
+              {record.status === 'Submitted' && rtoMatchUrl(record.rtoMatchId) && (
+                <span class="card-footer-note">{`Also deletes RTO match ${record.rtoMatchId}.`}</span>
+              )}
               <button class="text-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>
                 Keep
               </button>
@@ -260,9 +264,11 @@ function MatchCard({ item, deleting, onReview, onDelete }: MatchCardProps) {
               <button class="text-button" type="button" onClick={() => setConfirmingDelete(true)}>
                 Delete
               </button>
-              <button class="card-action" type="button" onClick={onReview}>
-                Review
-              </button>
+              {isReviewable(record) && (
+                <button class="card-action" type="button" onClick={onReview}>
+                  Review
+                </button>
+              )}
             </>
           )}
         </div>

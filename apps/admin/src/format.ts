@@ -34,8 +34,20 @@ export function isReviewable(record: QueueRecord): boolean {
   return (
     record.status !== 'Submitted' &&
     record.status !== 'Withdrawn' &&
+    record.status !== 'Deleted' &&
     (record.status !== 'Needs reconciliation' || wasRejectedByRto(record))
   );
+}
+
+export function isDeletable(record: QueueRecord): boolean {
+  return record.status !== 'Deleted' && (record.status !== 'Needs reconciliation' || wasRejectedByRto(record));
+}
+
+export function rtoMatchNumber(rtoMatchId: string): number | undefined {
+  const numericMatchId = Number(rtoMatchId);
+  return Number.isSafeInteger(numericMatchId) && numericMatchId > 0 && String(numericMatchId) === rtoMatchId
+    ? numericMatchId
+    : undefined;
 }
 
 /**
@@ -49,11 +61,7 @@ export function wasRejectedByRto(record: QueueRecord): boolean {
 }
 
 export function rtoMatchUrl(rtoMatchId: string): string | undefined {
-  const numericMatchId = Number(rtoMatchId);
-  if (Number.isSafeInteger(numericMatchId) && numericMatchId > 0 && String(numericMatchId) === rtoMatchId) {
-    return 'https://www.realtennisonline.com/v2/matches/details/' + rtoMatchId;
-  }
-  return undefined;
+  return rtoMatchNumber(rtoMatchId) ? 'https://www.realtennisonline.com/v2/matches/details/' + rtoMatchId : undefined;
 }
 
 export function formatMatchDate(matchDate: string): string {

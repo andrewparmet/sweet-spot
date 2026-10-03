@@ -3,13 +3,13 @@ import { readLocalTabs } from './local-queue.ts';
 const tabs = await readLocalTabs();
 const pending = Array.from(tabs.entries()).flatMap(([tabName, records]) =>
   records
-    .filter(record => record.status !== 'Submitted' && record.status !== 'Withdrawn')
+    .filter(record => !['Submitted', 'Withdrawn', 'Deleted'].includes(record.status))
     .map(record => ({ tabName, record }))
 );
 
 console.log('Weekly tabs');
 for (const [tabName, records] of tabs) {
-  const pendingCount = records.filter(record => record.status !== 'Submitted' && record.status !== 'Withdrawn').length;
+  const pendingCount = records.filter(record => !['Submitted', 'Withdrawn', 'Deleted'].includes(record.status)).length;
   console.log(`${tabName}: ${records.length} total, ${pendingCount} pending`);
 }
 

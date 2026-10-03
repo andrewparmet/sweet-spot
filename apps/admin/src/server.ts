@@ -7,7 +7,7 @@ import {
   rememberSubmission
 } from '../../../packages/shared/src/queue-sheet.ts';
 import { requiredText, validateMatchDate, validateMatchFields } from '../../../packages/shared/src/submission.ts';
-import { isValidOdds, normalizeScore, scoreError } from '../../../packages/shared/src/match.ts';
+import { isValidOdds, normalizeOdds, normalizeScore, scoreError } from '../../../packages/shared/src/match.ts';
 import { directorySearchTerms } from './player-search.ts';
 import {
   loadQueuePage,
@@ -17,7 +17,7 @@ import {
   type QueuePage,
   type QueueView
 } from './queue-index.ts';
-import { wasRejectedByRto } from './format.ts';
+import { isDeletable, rtoMatchNumber, wasRejectedByRto } from './format.ts';
 import { DUPLICATE_MATCH_MESSAGE, resolvePlayedHandicapDifference, type OddsReferenceRow } from './rto-match.ts';
 
 const RTO_API = 'https://www.realtennisonline.com/v2/api';
@@ -288,7 +288,7 @@ export function submitReviewedMatch(
     if (request.players.length !== expectedPlayerCount) {
       throw new Error(`Choose ${expectedPlayerCount} RTO players for this match.`);
     }
-    if (record.status === 'Submitted' || record.status === 'Withdrawn') {
+    if (record.status === 'Submitted' || record.status === 'Withdrawn' || record.status === 'Deleted') {
       throw new Error('That submission is no longer available for review.');
     }
     if (liveRtoSubmission && record.status === 'Needs reconciliation' && !wasRejectedByRto(record)) {
@@ -453,8 +453,14 @@ export function submitAdminEntry(
   }
 }
 
-export function deleteQueuedMatch(token: unknown, payload: unknown, spreadsheetId: string): { readonly deleted: true } {
-  const claims = authorize(requiredString(token, 'RTO session'));
+export function deleteQueuedMatch(
+  token: unknown,
+  payload: unknown,
+  spreadsheetId: string,
+  liveRtoSubmission: boolean
+): { readonly deleted: true } {
+  const sessionToken = requiredString(token, 'RTO session');
+  const claims = authorize(sessionToken);
   const request = validateQueuedMatchReference(payload);
   const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
   const lock = LockService.getScriptLock();
@@ -469,13 +475,20 @@ export function deleteQueuedMatch(token: unknown, payload: unknown, spreadsheetI
     }
     const rowNumber = rowOffset + 2;
     const record = recordFromRow(sheet.getRange(rowNumber, 1, 1, QUEUE_HEADERS.length).getDisplayValues()[0] ?? []);
-    if (record.status === 'Submitted' || (record.status === 'Needs reconciliation' && !wasRejectedByRto(record))) {
-      throw new Error('That score may already be in RTO and cannot be deleted here.');
+    if (!isDeletable(record)) {
+      throw new Error('That score may already be in RTO. Reconcile it before deleting.');
     }
-    sheet.deleteRow(rowNumber);
+    const rtoMatchId = record.status === 'Submitted' ? rtoMatchNumber(record.rtoMatchId) : undefined;
+    if (liveRtoSubmission && rtoMatchId) {
+      deleteRtoMatch(sessionToken, rtoMatchId);
+    }
+    const timestamp = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+    writeReviewColumns(sheet, rowNumber, { ...record, status: 'Deleted', updatedAt: timestamp });
     auditLog('queue_deletion', {
       submissionId: request.submissionId,
       status: record.status,
+      rtoMatchId: record.rtoMatchId,
+      rtoMatchDeleted: Boolean(liveRtoSubmission && rtoMatchId),
       userId: numericUserId(claims)
     });
     return { deleted: true };
@@ -486,7 +499,7 @@ export function deleteQueuedMatch(token: unknown, payload: unknown, spreadsheetI
 
 function resolveHandicap(token: string, record: QueueRecord, players: readonly ReviewedPlayer[]): ResolvedHandicap {
   const enteredHandicap = record.handicapOriginal.trim();
-  if (!enteredHandicap || enteredHandicap.replace(/\s+/g, '') === '0/0') {
+  if (!enteredHandicap || (record.handicapEntryType === 'odds' && normalizeOdds(enteredHandicap) === '0/0')) {
     return { difference: '', type: 'L' };
   }
   if (record.handicapEntryType === 'difference') {
@@ -651,6 +664,21 @@ function saveRtoMatch(
     throw new RtoMatchSaveError('RTO did not return a match ID. Reconcile in RTO.', false);
   }
   return matchId;
+}
+
+function deleteRtoMatch(token: string, matchId: number): void {
+  const response = UrlFetchApp.fetch(`${RTO_API}/Match/delete/${matchId}`, {
+    method: 'delete',
+    headers: { Authorization: `Bearer ${token}` },
+    muteHttpExceptions: true
+  });
+  const status = response.getResponseCode();
+  if ((status < 200 || status >= 300) && status !== 404) {
+    const detail = rtoErrorDetail(response.getContentText());
+    throw new Error(
+      detail ? `RTO could not delete match ${matchId}: ${detail}` : `RTO could not delete match ${matchId}.`
+    );
+  }
 }
 
 function findExistingMatchId(
@@ -1050,7 +1078,13 @@ function queueStatus(value: string): QueueRecord['status'] {
   if (value === 'Ready') {
     return 'Needs reconciliation';
   }
-  if (value === 'Needs reconciliation' || value === 'Submitted' || value === 'Failed' || value === 'Withdrawn') {
+  if (
+    value === 'Needs reconciliation' ||
+    value === 'Submitted' ||
+    value === 'Failed' ||
+    value === 'Withdrawn' ||
+    value === 'Deleted'
+  ) {
     return value;
   }
   return 'Needs review';
