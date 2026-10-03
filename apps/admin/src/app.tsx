@@ -250,7 +250,7 @@ function MatchCard({ item, deleting, onReview, onDelete }: MatchCardProps) {
           {confirmingDelete ? (
             <>
               {record.status === 'Submitted' && rtoMatchUrl(record.rtoMatchId) && (
-                <span class="card-footer-note">{`Also deletes RTO match ${record.rtoMatchId}.`}</span>
+                <span class="card-footer-note">{`Deletes RTO match ${record.rtoMatchId}.`}</span>
               )}
               <button class="text-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>
                 Keep
