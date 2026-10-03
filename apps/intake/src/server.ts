@@ -18,7 +18,8 @@ import {
   findSubmissionByRequestId,
   isoWeekTabName,
   newQueueRecord,
-  WEEK_SHEET_NAME_PATTERN
+  recentWeekTabNames,
+  rememberSubmission
 } from '../../../packages/shared/src/queue-sheet.ts';
 export { escapeForSheet, isoWeekTabName } from '../../../packages/shared/src/queue-sheet.ts';
 import { requiredText, validateMatchFields } from '../../../packages/shared/src/submission.ts';
@@ -191,8 +192,10 @@ export function submitMatch(payload: unknown): MatchSubmissionResponse {
   lock.waitLock(10_000);
 
   try {
+    const now = new Date();
+    const matchDate = Utilities.formatDate(now, BOSTON_TIME_ZONE, 'yyyy-MM-dd');
     const spreadsheet = getQueueSpreadsheet();
-    const existingSubmissionId = findSubmissionByRequestId(spreadsheet, submission.requestId);
+    const existingSubmissionId = findSubmissionByRequestId(spreadsheet, submission.requestId, matchDate);
     if (existingSubmissionId) {
       return {
         submissionId: existingSubmissionId,
@@ -201,9 +204,7 @@ export function submitMatch(payload: unknown): MatchSubmissionResponse {
     }
 
     enforceThrottle(submission.clientId);
-    const now = new Date();
     const submissionId = Utilities.getUuid();
-    const matchDate = Utilities.formatDate(now, BOSTON_TIME_ZONE, 'yyyy-MM-dd');
     const timestamp = Utilities.formatDate(now, BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
     const sheet = ensureWeekSheet(spreadsheet, isoWeekTabName(matchDate));
 
@@ -215,6 +216,7 @@ export function submitMatch(payload: unknown): MatchSubmissionResponse {
       sanctioned: false
     });
     sheet.appendRow(queueRecordToRow(record));
+    rememberSubmission(submission.requestId, submissionId);
 
     return {
       submissionId,
@@ -325,8 +327,10 @@ function findSubmission(
   submissionId: string,
   requestId: string
 ): QueueLocation | undefined {
-  for (const sheet of spreadsheet.getSheets()) {
-    if (!WEEK_SHEET_NAME_PATTERN.test(sheet.getName()) || sheet.getLastRow() < 2) {
+  const today = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, 'yyyy-MM-dd');
+  for (const tabName of recentWeekTabNames(today)) {
+    const sheet = spreadsheet.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) {
       continue;
     }
     const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();

@@ -4,6 +4,7 @@ import type { MatchFields } from './submission.ts';
 
 export const BOSTON_COURT_ID = 36;
 export const WEEK_SHEET_NAME_PATTERN = /^\d{4}-W\d{2}$/;
+const REQUEST_CACHE_SECONDS = 21_600;
 
 export interface NewQueueRecord {
   readonly submissionId: string;
@@ -88,12 +89,22 @@ export function ensureWeekSheet(
   return sheet;
 }
 
+/**
+ * Finds the submission already recorded for `requestId`, checking the script cache and then the week tabs a retry can
+ * land in: the week of `today` and the week before.
+ */
 export function findSubmissionByRequestId(
   spreadsheet: GoogleAppsScript.Spreadsheet.Spreadsheet,
-  requestId: string
+  requestId: string,
+  today: string
 ): string {
-  for (const sheet of spreadsheet.getSheets()) {
-    if (!WEEK_SHEET_NAME_PATTERN.test(sheet.getName()) || sheet.getLastRow() < 2) {
+  const cached = CacheService.getScriptCache().get(requestCacheKey(requestId));
+  if (cached) {
+    return cached;
+  }
+  for (const tabName of recentWeekTabNames(today)) {
+    const sheet = spreadsheet.getSheetByName(tabName);
+    if (!sheet || sheet.getLastRow() < 2) {
       continue;
     }
     const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
@@ -103,6 +114,21 @@ export function findSubmissionByRequestId(
     }
   }
   return '';
+}
+
+export function rememberSubmission(requestId: string, submissionId: string): void {
+  CacheService.getScriptCache().put(requestCacheKey(requestId), submissionId, REQUEST_CACHE_SECONDS);
+}
+
+export function recentWeekTabNames(today: string): string[] {
+  const lastWeek = new Date(`${today}T00:00:00Z`);
+  lastWeek.setUTCDate(lastWeek.getUTCDate() - 7);
+  return [isoWeekTabName(today), isoWeekTabName(lastWeek.toISOString().slice(0, 10))];
+}
+
+function requestCacheKey(requestId: string): string {
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, requestId);
+  return `request:${Utilities.base64EncodeWebSafe(digest)}`;
 }
 
 function sheetIsEmpty(sheet: GoogleAppsScript.Spreadsheet.Sheet): boolean {

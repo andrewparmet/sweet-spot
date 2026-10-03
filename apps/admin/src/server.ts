@@ -3,7 +3,8 @@ import {
   ensureWeekSheet,
   findSubmissionByRequestId,
   isoWeekTabName,
-  newQueueRecord
+  newQueueRecord,
+  rememberSubmission
 } from '../../../packages/shared/src/queue-sheet.ts';
 import { requiredText, validateMatchDate, validateMatchFields } from '../../../packages/shared/src/submission.ts';
 import { isValidOdds, normalizeScore, scoreError } from '../../../packages/shared/src/match.ts';
@@ -17,7 +18,7 @@ import {
   type QueueView
 } from './queue-index.ts';
 import { wasRejectedByRto } from './format.ts';
-import { DUPLICATE_MATCH_MESSAGE, resolvePlayedHandicapDifference } from './rto-match.ts';
+import { DUPLICATE_MATCH_MESSAGE, resolvePlayedHandicapDifference, type OddsReferenceRow } from './rto-match.ts';
 
 const RTO_API = 'https://www.realtennisonline.com/v2/api';
 const BOSTON_ORGANIZATION_ID = 36;
@@ -28,6 +29,7 @@ const TOKEN_VALIDATION_RATE_LIMIT = 120;
 const RATE_LIMIT_SECONDS = 60;
 const VALIDATED_SESSION_CACHE_SECONDS = 300;
 const QUEUE_INDEX_PROPERTY_PREFIX = 'SWEET_SPOT_QUEUE_INDEX:';
+const RTO_REFERENCE_CACHE_SECONDS = 21_600;
 
 class RtoMatchSaveError extends Error {
   constructor(
@@ -128,6 +130,17 @@ export function loadSanctionedMatches(token: unknown): { readonly matches: Sanct
 }
 
 function sanctionedMatches(sessionToken: string): SanctionedMatch[] {
+  const cacheKey = 'rto:sanctioned-matches';
+  const cached = CacheService.getScriptCache().get(cacheKey);
+  if (cached) {
+    return JSON.parse(cached) as SanctionedMatch[];
+  }
+  const matches = fetchSanctionedMatches(sessionToken);
+  cacheReference(cacheKey, matches);
+  return matches;
+}
+
+function fetchSanctionedMatches(sessionToken: string): SanctionedMatch[] {
   const response = rtoGet('/SanctionedMatch/getAll', sessionToken);
   if (!Array.isArray(response)) {
     throw new Error('RTO returned an unreadable sanctioned match list.');
@@ -295,13 +308,15 @@ export function submitReviewedMatch(
     const timestamp = Utilities.formatDate(new Date(), BOSTON_TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
     const playerIds = request.players.map(player => String(player.id));
     const score = normalizeScore(request.score);
+    const reviewed = {
+      ...queuedRecord,
+      rtoPlayerIds: playerIds.join(','),
+      scoreNormalized: score,
+      updatedAt: timestamp
+    };
     if (!liveRtoSubmission) {
-      setCell(sheet, rowNumber, 'Status', 'Submitted');
+      writeReviewColumns(sheet, rowNumber, { ...reviewed, status: 'Submitted', rtoMatchId: `demo-${Date.now()}` });
       recordHistoryTab(spreadsheetId, request.tabName);
-      setCell(sheet, rowNumber, 'RTO Player IDs', playerIds.join(','));
-      setCell(sheet, rowNumber, 'Score Normalized', score);
-      setCell(sheet, rowNumber, 'RTO Match ID', `demo-${Date.now()}`);
-      setCell(sheet, rowNumber, 'Updated At', timestamp);
       auditLog('match_submission', {
         environment: 'staging',
         outcome: 'submitted',
@@ -316,9 +331,12 @@ export function submitReviewedMatch(
     try {
       handicap = resolveHandicap(sessionToken, record, request.players);
     } catch (error) {
-      setCell(sheet, rowNumber, 'Status', 'Failed');
-      setCell(sheet, rowNumber, 'Last Error', safeErrorMessage(error));
-      setCell(sheet, rowNumber, 'Updated At', timestamp);
+      writeReviewColumns(sheet, rowNumber, {
+        ...queuedRecord,
+        status: 'Failed',
+        lastError: safeErrorMessage(error),
+        updatedAt: timestamp
+      });
       auditLog(
         'match_submission',
         {
@@ -333,12 +351,13 @@ export function submitReviewedMatch(
       );
       throw error;
     }
-    setCell(sheet, rowNumber, 'Status', 'Needs reconciliation');
-    setCell(sheet, rowNumber, 'RTO Player IDs', playerIds.join(','));
-    setCell(sheet, rowNumber, 'Score Normalized', score);
-    setCell(sheet, rowNumber, 'RTO Handicap Difference', handicap.difference);
-    setCell(sheet, rowNumber, 'Last Error', '');
-    setCell(sheet, rowNumber, 'Updated At', timestamp);
+    const started: QueueRecord = {
+      ...reviewed,
+      status: 'Needs reconciliation',
+      rtoHandicapDifference: handicap.difference,
+      lastError: ''
+    };
+    writeReviewColumns(sheet, rowNumber, started);
     SpreadsheetApp.flush();
     auditLog('match_submission', {
       environment: 'production',
@@ -361,11 +380,11 @@ export function submitReviewedMatch(
         request.duplicateConfirmed
       );
     } catch (error) {
-      if (error instanceof RtoMatchSaveError && error.rejected) {
-        setCell(sheet, rowNumber, 'Status', 'Failed');
-      }
-      setCell(sheet, rowNumber, 'Last Error', safeErrorMessage(error));
-      setCell(sheet, rowNumber, 'Updated At', timestamp);
+      writeReviewColumns(sheet, rowNumber, {
+        ...started,
+        status: error instanceof RtoMatchSaveError && error.rejected ? 'Failed' : started.status,
+        lastError: safeErrorMessage(error)
+      });
       auditLog(
         'match_submission',
         {
@@ -381,10 +400,8 @@ export function submitReviewedMatch(
       );
       throw error;
     }
-    setCell(sheet, rowNumber, 'RTO Match ID', String(matchId));
-    setCell(sheet, rowNumber, 'Status', 'Submitted');
+    writeReviewColumns(sheet, rowNumber, { ...started, status: 'Submitted', rtoMatchId: String(matchId) });
     recordHistoryTab(spreadsheetId, request.tabName);
-    setCell(sheet, rowNumber, 'Updated At', timestamp);
     auditLog('match_submission', {
       environment: 'production',
       outcome: 'submitted',
@@ -418,7 +435,7 @@ export function submitAdminEntry(
   const lock = LockService.getScriptLock();
   lock.waitLock(10_000);
   try {
-    const existingSubmissionId = findSubmissionByRequestId(spreadsheet, requestId);
+    const existingSubmissionId = findSubmissionByRequestId(spreadsheet, requestId, today);
     if (existingSubmissionId) {
       return { submissionId: existingSubmissionId };
     }
@@ -428,6 +445,7 @@ export function submitAdminEntry(
     sheet.appendRow(
       queueRecordToRow(newQueueRecord(fields, { submissionId, requestId, timestamp, matchDate, sanctioned }))
     );
+    rememberSubmission(requestId, submissionId);
     auditLog('admin_entry', { submissionId, sanctioned, userId: numericUserId(claims) });
     return { submissionId };
   } finally {
@@ -479,7 +497,21 @@ function resolveHandicap(token: string, record: QueueRecord, players: readonly R
     return { difference: String(difference), type: 'H' };
   }
 
-  const calculator = rtoPost('/Utility/odds/calculator', oddsCalculatorPayload(record, players), token);
+  const cache = CacheService.getScriptCache();
+  const oddsCacheKey = `rto:odds:${record.matchType}:${record.matchDate}`;
+  const cachedOdds = cache.get(oddsCacheKey);
+  const [calculatorResponse, oddsResponse] = UrlFetchApp.fetchAll([
+    rtoPostRequest('/Utility/odds/calculator', oddsCalculatorPayload(record, players), token),
+    ...(cachedOdds
+      ? []
+      : [
+          rtoGetRequest(
+            `/Utility/odds/getAll/${record.matchType}?effectiveDate=${encodeURIComponent(record.matchDate)}`,
+            token
+          )
+        ])
+  ]);
+  const calculator = calculatorResponse ? parseRtoResponse(calculatorResponse) : undefined;
   if (!isRecord(calculator)) {
     throw new Error('RTO returned an unreadable handicap calculation.');
   }
@@ -492,22 +524,35 @@ function resolveHandicap(token: string, record: QueueRecord, players: readonly R
   if (!Number.isFinite(suggestedDifference)) {
     throw new Error('RTO did not return a handicap difference.');
   }
-  const oddsResponse = rtoGet(
-    `/Utility/odds/getAll/${record.matchType}?effectiveDate=${encodeURIComponent(record.matchDate)}`,
-    token
-  );
-  const oddsRows = Array.isArray(oddsResponse)
-    ? oddsResponse
-    : isRecord(oddsResponse) && Array.isArray(oddsResponse.rows ?? oddsResponse.Rows)
-      ? ((oddsResponse.rows ?? oddsResponse.Rows) as unknown[])
-      : undefined;
-  if (!oddsRows) {
-    throw new Error('RTO returned an unreadable odds table.');
+  const oddsRows = cachedOdds ? (JSON.parse(cachedOdds) as OddsReferenceRow[]) : readOddsRows(oddsResponse);
+  if (!cachedOdds) {
+    cacheReference(oddsCacheKey, oddsRows);
   }
   return {
     difference: String(resolvePlayedHandicapDifference(enteredHandicap, oddsRows, suggestedDifference)),
     type: 'H'
   };
+}
+
+function readOddsRows(response: GoogleAppsScript.URL_Fetch.HTTPResponse | undefined): OddsReferenceRow[] {
+  const body = response ? parseRtoResponse(response) : undefined;
+  const rows = Array.isArray(body)
+    ? body
+    : isRecord(body) && Array.isArray(body.rows ?? body.Rows)
+      ? ((body.rows ?? body.Rows) as OddsReferenceRow[])
+      : undefined;
+  if (!rows) {
+    throw new Error('RTO returned an unreadable odds table.');
+  }
+  return rows;
+}
+
+function cacheReference(key: string, value: unknown): void {
+  try {
+    CacheService.getScriptCache().put(key, JSON.stringify(value), RTO_REFERENCE_CACHE_SECONDS);
+  } catch (error) {
+    console.warn(JSON.stringify({ event: 'reference_cache_skipped', key, error: safeErrorMessage(error) }));
+  }
 }
 
 function oddsCalculatorPayload(record: QueueRecord, players: readonly ReviewedPlayer[]): Record<string, unknown> {
@@ -791,23 +836,33 @@ function rtoRequest(path: string, payload: object, token?: string): Record<strin
 }
 
 function rtoPost(path: string, payload: object, token?: string): unknown {
-  const response = UrlFetchApp.fetch(`${RTO_API}${path}`, {
+  const { url, ...options } = rtoPostRequest(path, payload, token);
+  return parseRtoResponse(UrlFetchApp.fetch(url, options));
+}
+
+function rtoGet(path: string, token: string): unknown {
+  const { url, ...options } = rtoGetRequest(path, token);
+  return parseRtoResponse(UrlFetchApp.fetch(url, options));
+}
+
+function rtoPostRequest(path: string, payload: object, token?: string): GoogleAppsScript.URL_Fetch.URLFetchRequest {
+  return {
+    url: `${RTO_API}${path}`,
     method: 'post',
     contentType: 'application/json',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
-  });
-  return parseRtoResponse(response);
+  };
 }
 
-function rtoGet(path: string, token: string): unknown {
-  const response = UrlFetchApp.fetch(`${RTO_API}${path}`, {
+function rtoGetRequest(path: string, token: string): GoogleAppsScript.URL_Fetch.URLFetchRequest {
+  return {
+    url: `${RTO_API}${path}`,
     method: 'get',
     headers: { Authorization: `Bearer ${token}` },
     muteHttpExceptions: true
-  });
-  return parseRtoResponse(response);
+  };
 }
 
 function parseRtoResponse(response: GoogleAppsScript.URL_Fetch.HTTPResponse): unknown {
@@ -1001,13 +1056,13 @@ function queueStatus(value: string): QueueRecord['status'] {
   return 'Needs review';
 }
 
-function setCell(
-  sheet: GoogleAppsScript.Spreadsheet.Sheet,
-  rowNumber: number,
-  header: (typeof QUEUE_HEADERS)[number],
-  value: string
-): void {
-  sheet.getRange(rowNumber, QUEUE_HEADERS.indexOf(header) + 1).setValue(value);
+/**
+ * Writes the review columns of `record`, from Status through Updated At, to `rowNumber` in one call.
+ */
+function writeReviewColumns(sheet: GoogleAppsScript.Spreadsheet.Sheet, rowNumber: number, record: QueueRecord): void {
+  const first = QUEUE_HEADERS.indexOf('Status');
+  const values = queueRecordToRow(record).slice(first, QUEUE_HEADERS.indexOf('Updated At') + 1);
+  sheet.getRange(rowNumber, first + 1, 1, values.length).setValues([values]);
 }
 
 function validateLoginRequest(payload: unknown): LoginRequest {

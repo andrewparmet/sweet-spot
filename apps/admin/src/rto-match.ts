@@ -4,7 +4,7 @@ export function isDuplicateMatchError(message: string): boolean {
   return message.startsWith(DUPLICATE_MATCH_MESSAGE) || message.startsWith('RTO returned HTTP 409 ');
 }
 
-interface OddsReferenceRow {
+export interface OddsReferenceRow {
   readonly hcapDifference?: unknown;
   readonly HcapDifference?: unknown;
   readonly oddsShort1?: unknown;
