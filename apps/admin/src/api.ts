@@ -44,6 +44,7 @@ export interface ReviewedMatchRequest {
   readonly score: string;
   readonly handicap: string;
   readonly sanctionedMatch: string;
+  readonly duplicateConfirmed: boolean;
 }
 
 export interface AdminEntryRequest {

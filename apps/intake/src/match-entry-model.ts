@@ -1,7 +1,7 @@
 import { signal } from '@preact/signals';
 import {
   isValidOdds,
-  isValidScore,
+  scoreError,
   MATCH_TYPES,
   type MatchSubmissionRequest,
   type MatchSubmissionResponse,
@@ -167,8 +167,9 @@ export function firstInvalidField(draft: Draft): FieldError | undefined {
   if (missingField) {
     return { field: missingField, message: REQUIRED_FIELD_MESSAGES[missingField] };
   }
-  if (!isValidScore(draft.score)) {
-    return { field: 'score', message: 'Enter game scores like 6-2,6-1 or 10-8.' };
+  const invalidScore = scoreError(draft.score);
+  if (invalidScore) {
+    return { field: 'score', message: invalidScore };
   }
   if (draft.handicap.trim() && !isValidOdds(draft.handicap)) {
     return { field: 'handicap', message: 'Enter two valid odds scores, such as -15/15 or -h15/15.' };

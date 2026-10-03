@@ -15,7 +15,33 @@ export function isValidOdds(value: string): boolean {
 }
 
 export function isValidScore(value: string): boolean {
-  return SCORE_PATTERN.test(value.trim());
+  return !scoreError(value);
+}
+
+/**
+ * Describes why `value` is not a score RTO accepts, or returns undefined for a valid score.
+ *
+ * A score has up to five sets. Every set but the last must be finished: untied, with one side reaching the first set's
+ * winning game count.
+ */
+export function scoreError(value: string): string | undefined {
+  if (!SCORE_PATTERN.test(value.trim())) {
+    return 'Enter game scores like 6-2,6-1 or 10-8.';
+  }
+  const sets = normalizeScore(value)
+    .split(' ')
+    .map(set => set.split('/').map(Number));
+  if (sets.length > 5) {
+    return 'Enter at most five sets.';
+  }
+  if (sets.some(([side1, side2]) => side1 === 0 && side2 === 0)) {
+    return 'Remove the 0-0 set.';
+  }
+  const setLength = Math.max(...(sets[0] ?? []));
+  const unfinished = sets
+    .slice(0, -1)
+    .some(([side1, side2]) => side1 === side2 || (side1 !== setLength && side2 !== setLength));
+  return unfinished ? 'Only the last set can be unfinished.' : undefined;
 }
 
 export function normalizeScore(score: string): string {

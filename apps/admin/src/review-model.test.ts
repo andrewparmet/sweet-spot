@@ -120,11 +120,46 @@ describe('createReviewModel', () => {
         ],
         score: '6-3',
         handicap: '-15/15',
-        sanctionedMatch: ''
+        sanctionedMatch: '',
+        duplicateConfirmed: false
       }
     ]);
     expect(review.state.value.phase).toBe('closed');
     expect(onSubmitted).toHaveBeenCalledOnce();
+  });
+
+  it('offers to confirm a duplicate after RTO flags one', async () => {
+    const requests: ReviewedMatchRequest[] = [];
+    const review = createReviewModel(
+      dependencies({
+        submitReviewedMatch: async request => {
+          requests.push(request);
+          if (!request.duplicateConfirmed) {
+            throw new Error('RTO flagged this as a possible duplicate match. A match already exists.');
+          }
+        }
+      })
+    );
+    await review.open(item);
+    review.selectPlayer(1, '2');
+    await review.submit();
+    expect(form(review.state.value).duplicateWarning).toBe(true);
+    await review.submit();
+    expect(requests.map(request => request.duplicateConfirmed)).toEqual([false, true]);
+    expect(review.state.value.phase).toBe('closed');
+  });
+
+  it('opens a previously flagged duplicate ready to confirm', async () => {
+    const review = createReviewModel(dependencies());
+    await review.open({
+      ...item,
+      record: {
+        ...record,
+        status: 'Needs reconciliation',
+        lastError: 'RTO returned HTTP 409 without a readable match ID. Reconcile in RTO.'
+      }
+    });
+    expect(form(review.state.value).duplicateWarning).toBe(true);
   });
 
   it('starts from the entered handicap and blocks invalid overrides', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidOdds, isValidScore } from '../../../packages/shared/src/match.ts';
+import { isValidOdds, isValidScore, scoreError } from '../../../packages/shared/src/match.ts';
 import {
   escapeForSheet,
   isoWeekTabName,
@@ -149,6 +149,19 @@ describe('score validation', () => {
 
   it.each(['6', 'six-two', '6-', '6-2,', '6-2 unfinished', '2-1 incomplete', ''])('rejects %s', score => {
     expect(isValidScore(score)).toBe(false);
+  });
+
+  it.each(['6/4 3/3', '6/3 3/4', '6/5', '6-0,6-2,3-1', '10-8'])('accepts an unfinished last set in %s', score => {
+    expect(scoreError(score)).toBeUndefined();
+  });
+
+  it.each([
+    ['6/5 5/4 6/4', 'Only the last set can be unfinished.'],
+    ['6/6 6/2', 'Only the last set can be unfinished.'],
+    ['6/0 0/0', 'Remove the 0-0 set.'],
+    ['6/0 6/0 6/0 6/0 6/0 6/0', 'Enter at most five sets.']
+  ])('rejects %s', (score, message) => {
+    expect(scoreError(score)).toBe(message);
   });
 });
 

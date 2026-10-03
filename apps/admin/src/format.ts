@@ -31,7 +31,21 @@ export function statusClass(status: QueueRecord['status']): string {
 }
 
 export function isReviewable(record: QueueRecord): boolean {
-  return record.status !== 'Submitted' && record.status !== 'Withdrawn' && record.status !== 'Needs reconciliation';
+  return (
+    record.status !== 'Submitted' &&
+    record.status !== 'Withdrawn' &&
+    (record.status !== 'Needs reconciliation' || wasRejectedByRto(record))
+  );
+}
+
+/**
+ * Whether a `Needs reconciliation` record recorded an RTO 4xx rejection, which means RTO saved nothing.
+ */
+export function wasRejectedByRto(record: QueueRecord): boolean {
+  return (
+    record.status === 'Needs reconciliation' &&
+    /^RTO returned HTTP 4(?!08)\d\d without a readable match ID\./.test(record.lastError)
+  );
 }
 
 export function rtoMatchUrl(rtoMatchId: string): string | undefined {

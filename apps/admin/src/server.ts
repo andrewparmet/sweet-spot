@@ -6,7 +6,7 @@ import {
   newQueueRecord
 } from '../../../packages/shared/src/queue-sheet.ts';
 import { requiredText, validateMatchDate, validateMatchFields } from '../../../packages/shared/src/submission.ts';
-import { isValidOdds, isValidScore, normalizeScore } from '../../../packages/shared/src/match.ts';
+import { isValidOdds, normalizeScore, scoreError } from '../../../packages/shared/src/match.ts';
 import { directorySearchTerms } from './player-search.ts';
 import {
   loadQueuePage,
@@ -16,7 +16,8 @@ import {
   type QueuePage,
   type QueueView
 } from './queue-index.ts';
-import { resolvePlayedHandicapDifference } from './rto-match.ts';
+import { wasRejectedByRto } from './format.ts';
+import { DUPLICATE_MATCH_MESSAGE, resolvePlayedHandicapDifference } from './rto-match.ts';
 
 const RTO_API = 'https://www.realtennisonline.com/v2/api';
 const BOSTON_ORGANIZATION_ID = 36;
@@ -55,6 +56,7 @@ interface ReviewedSubmissionRequest {
   readonly score: string;
   readonly handicap: string;
   readonly sanctionedMatch: string;
+  readonly duplicateConfirmed: boolean;
 }
 
 interface SanctionedMatch {
@@ -276,7 +278,7 @@ export function submitReviewedMatch(
     if (record.status === 'Submitted' || record.status === 'Withdrawn') {
       throw new Error('That submission is no longer available for review.');
     }
-    if (liveRtoSubmission && record.status === 'Needs reconciliation') {
+    if (liveRtoSubmission && record.status === 'Needs reconciliation' && !wasRejectedByRto(record)) {
       throw new Error('This submission may already have reached RTO and must be reconciled before retrying.');
     }
     const description = record.sanctioned ? request.sanctionedMatch : '';
@@ -348,7 +350,16 @@ export function submitReviewedMatch(
 
     let matchId: number;
     try {
-      matchId = saveRtoMatch(sessionToken, claims, record, request.players, score, handicap, description);
+      matchId = saveRtoMatch(
+        sessionToken,
+        claims,
+        record,
+        request.players,
+        score,
+        handicap,
+        description,
+        request.duplicateConfirmed
+      );
     } catch (error) {
       if (error instanceof RtoMatchSaveError && error.rejected) {
         setCell(sheet, rowNumber, 'Status', 'Failed');
@@ -440,7 +451,7 @@ export function deleteQueuedMatch(token: unknown, payload: unknown, spreadsheetI
     }
     const rowNumber = rowOffset + 2;
     const record = recordFromRow(sheet.getRange(rowNumber, 1, 1, QUEUE_HEADERS.length).getDisplayValues()[0] ?? []);
-    if (record.status === 'Submitted' || record.status === 'Needs reconciliation') {
+    if (record.status === 'Submitted' || (record.status === 'Needs reconciliation' && !wasRejectedByRto(record))) {
       throw new Error('That score may already be in RTO and cannot be deleted here.');
     }
     sheet.deleteRow(rowNumber);
@@ -528,7 +539,8 @@ function saveRtoMatch(
   players: readonly ReviewedPlayer[],
   score: string,
   handicap: ResolvedHandicap,
-  description: string
+  description: string,
+  duplicateConfirmed: boolean
 ): number {
   const userId = Number(claims.sub);
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -556,7 +568,7 @@ function saveRtoMatch(
       SpecialResultAwardedTeam: null,
       SpecialResultIntendedSets: null,
       SpecialResultGamesPerSet: null,
-      DuplicateConfirmed: false
+      DuplicateConfirmed: duplicateConfirmed
     }),
     muteHttpExceptions: true
   });
@@ -565,9 +577,15 @@ function saveRtoMatch(
   if (status < 200 || status >= 300) {
     const detail = rtoErrorDetail(bodyText);
     const rejected = status >= 400 && status < 500 && status !== 408;
-    const message = rejected
-      ? detail || `RTO rejected the match with HTTP ${status}.`
-      : `RTO returned HTTP ${status}; the submission outcome is unknown. Reconcile in RTO.`;
+    const existingMatchId = status === 409 ? findExistingMatchId(token, record, players) : undefined;
+    const message =
+      status === 409
+        ? [DUPLICATE_MATCH_MESSAGE, existingMatchId ? `RTO already has match ${existingMatchId}.` : '', detail]
+            .filter(Boolean)
+            .join(' ')
+        : rejected
+          ? detail || `RTO rejected the match with HTTP ${status}.`
+          : `RTO returned HTTP ${status}; the submission outcome is unknown. Reconcile in RTO.`;
     throw new RtoMatchSaveError(message, rejected, status);
   }
   let body: unknown;
@@ -588,6 +606,38 @@ function saveRtoMatch(
     throw new RtoMatchSaveError('RTO did not return a match ID. Reconcile in RTO.', false);
   }
   return matchId;
+}
+
+function findExistingMatchId(
+  token: string,
+  record: QueueRecord,
+  players: readonly ReviewedPlayer[]
+): number | undefined {
+  const doubles = record.matchType === 'D';
+  const query = [
+    ['CourtID', record.courtId],
+    ['MatchDate', record.matchDate],
+    ['P1', players[0]?.id],
+    ['P2', doubles ? players[1]?.id : undefined],
+    ['P3', players[doubles ? 2 : 1]?.id],
+    ['P4', doubles ? players[3]?.id : undefined]
+  ]
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
+    .join('&');
+  try {
+    const response = rtoGet(`/Match/search?${query}`, token);
+    const matches = Array.isArray(response)
+      ? response
+      : isRecord(response)
+        ? [response.rows, response.Rows, response.items, response.Items].find(Array.isArray)
+        : undefined;
+    return (matches ?? [])
+      .map(match => (isRecord(match) ? Number(match.matchID ?? match.matchId ?? match.MatchID) : Number.NaN))
+      .find(matchId => Number.isInteger(matchId) && matchId > 0);
+  } catch {
+    return undefined;
+  }
 }
 
 export function rtoErrorDetail(bodyText: string): string {
@@ -975,8 +1025,12 @@ function validateReviewedSubmission(payload: unknown): ReviewedSubmissionRequest
     throw new Error('The reviewed submission is incomplete.');
   }
   const score = requiredString(payload.score, 'Score');
-  if (score.length > 100 || !isValidScore(score)) {
-    throw new Error('Enter game scores like 6-2,6-1 or 10-8.');
+  if (score.length > 100) {
+    throw new Error('The score is too long.');
+  }
+  const invalidScore = scoreError(score);
+  if (invalidScore) {
+    throw new Error(invalidScore);
   }
   const players = payload.players.map(player => {
     if (!isRecord(player)) {
@@ -1010,7 +1064,8 @@ function validateReviewedSubmission(payload: unknown): ReviewedSubmissionRequest
     players,
     score,
     handicap,
-    sanctionedMatch
+    sanctionedMatch,
+    duplicateConfirmed: payload.duplicateConfirmed === true
   };
 }
 

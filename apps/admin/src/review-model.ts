@@ -4,6 +4,7 @@ import type { QueueRecord } from '../../../packages/shared/src/queue.ts';
 import type { AdminQueueItem, DirectoryPlayer, ReviewedMatchRequest, SanctionedMatch } from './api.ts';
 import { playerSides } from './format.ts';
 import { playerMatchScore, reasonablePlayerMatches } from './player-search.ts';
+import { isDuplicateMatchError } from './rto-match.ts';
 
 export type ExpansionStatus = 'idle' | 'expanding' | 'expanded';
 
@@ -27,6 +28,7 @@ export interface ReviewForm {
   readonly handicap: string;
   readonly sanctionedMatches: readonly SanctionedMatch[];
   readonly sanctionedMatch: string;
+  readonly duplicateWarning: boolean;
   readonly slots: readonly PlayerSlot[];
   readonly error: string | undefined;
 }
@@ -106,6 +108,7 @@ export function createReviewModel(dependencies: ReviewDependencies) {
         handicap: item.record.handicapOriginal,
         sanctionedMatches,
         sanctionedMatch: '',
+        duplicateWarning: isDuplicateMatchError(item.record.lastError),
         slots,
         error: undefined
       };
@@ -240,14 +243,20 @@ export function createReviewModel(dependencies: ReviewDependencies) {
         players,
         score: form.score.trim(),
         handicap: form.handicap.trim(),
-        sanctionedMatch: form.item.record.sanctioned ? form.sanctionedMatch : ''
+        sanctionedMatch: form.item.record.sanctioned ? form.sanctionedMatch : '',
+        duplicateConfirmed: form.duplicateWarning
       });
       if (currentForm()?.item === form.item) {
         state.value = { phase: 'closed' };
       }
       dependencies.onSubmitted();
     } catch (error) {
-      updateForm(form.item, () => ({ phase: 'editing', error: errorMessage(error, 'The submission failed.') }));
+      const message = errorMessage(error, 'The submission failed.');
+      updateForm(form.item, () => ({
+        phase: 'editing',
+        error: message,
+        duplicateWarning: isDuplicateMatchError(message)
+      }));
     }
   }
 

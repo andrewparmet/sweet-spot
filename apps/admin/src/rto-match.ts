@@ -1,3 +1,9 @@
+export const DUPLICATE_MATCH_MESSAGE = 'RTO flagged this as a possible duplicate match.';
+
+export function isDuplicateMatchError(message: string): boolean {
+  return message.startsWith(DUPLICATE_MATCH_MESSAGE) || message.startsWith('RTO returned HTTP 409 ');
+}
+
 interface OddsReferenceRow {
   readonly hcapDifference?: unknown;
   readonly HcapDifference?: unknown;

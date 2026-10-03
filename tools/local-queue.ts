@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { QueueRecord } from '../packages/shared/src/queue.ts';
 import { repositoryRoot } from './components.ts';
+import { wasRejectedByRto } from '../apps/admin/src/format.ts';
 
 export const localDataDirectory = path.join(repositoryRoot, 'local-data');
 
@@ -110,7 +111,7 @@ export async function deleteLocalRecord(submissionId: string): Promise<void> {
     if (!record) {
       continue;
     }
-    if (record.status === 'Submitted' || record.status === 'Needs reconciliation') {
+    if (record.status === 'Submitted' || (record.status === 'Needs reconciliation' && !wasRejectedByRto(record))) {
       throw new Error('That score may already be in RTO and cannot be deleted here.');
     }
     await writeLocalTab(

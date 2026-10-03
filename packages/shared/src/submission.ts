@@ -1,7 +1,7 @@
 import {
   HANDICAP_ENTRY_TYPES,
   isValidOdds,
-  isValidScore,
+  scoreError,
   MATCH_TYPES,
   type HandicapEntryType,
   type MatchType
@@ -50,8 +50,9 @@ export function validateMatchFields(payload: Record<string, unknown>): MatchFiel
   }
 
   const score = requiredText(payload.score, 'Score', MAX_SCORE_LENGTH);
-  if (!isValidScore(score)) {
-    throw new Error('Enter game scores like 6-2,6-1 or 10-8.');
+  const invalidScore = scoreError(score);
+  if (invalidScore) {
+    throw new Error(invalidScore);
   }
   const handicap = optionalText(payload.handicap, 'Handicap played', MAX_HANDICAP_LENGTH);
   if (handicap && handicapType === 'difference' && !/^[+-]?\d+(?:\.\d+)?$/.test(handicap)) {

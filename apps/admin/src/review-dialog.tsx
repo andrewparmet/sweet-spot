@@ -9,6 +9,8 @@ import {
   type ReviewForm,
   type ReviewModel
 } from './review-model.ts';
+import { scoreError } from '../../../packages/shared/src/match.ts';
+import { DUPLICATE_MATCH_MESSAGE } from './rto-match.ts';
 
 const EXPAND_LABELS: Record<ExpansionStatus, string> = {
   idle: 'Expand search',
@@ -22,7 +24,13 @@ export function ReviewDialog({ review }: { readonly review: ReviewModel }) {
   const open = state.phase !== 'closed';
   const submitting = state.phase === 'submitting';
   const form = state.phase === 'editing' || state.phase === 'submitting' ? state : undefined;
-  const error = state.phase === 'failed' ? state.error : form?.error;
+  const duplicateWarning = form?.duplicateWarning === true;
+  const error =
+    state.phase === 'failed'
+      ? state.error
+      : duplicateWarning
+        ? `${form?.error ?? DUPLICATE_MATCH_MESSAGE} Submit anyway if this is a separate match.`
+        : form?.error;
 
   useEffect(() => {
     const element = dialog.current;
@@ -77,7 +85,7 @@ export function ReviewDialog({ review }: { readonly review: ReviewModel }) {
               disabled={!review.canSubmit.value}
               onClick={() => void review.submit()}
             >
-              {submitting ? 'Submitting…' : 'Submit'}
+              {submitting ? 'Submitting…' : duplicateWarning ? 'Submit anyway' : 'Submit'}
             </button>
           </div>
         )}
@@ -88,6 +96,7 @@ export function ReviewDialog({ review }: { readonly review: ReviewModel }) {
 
 function ReviewContent({ review, form }: { readonly review: ReviewModel; readonly form: ReviewForm }) {
   const { record } = form.item;
+  const invalidScore = scoreError(form.score);
   const sides = [1, 2].map(side => form.slots.flatMap((slot, index) => (slot.side === side ? [{ slot, index }] : [])));
   return (
     <div>
@@ -101,8 +110,10 @@ function ReviewContent({ review, form }: { readonly review: ReviewModel; readonl
           autocomplete="off"
           maxLength={100}
           value={form.score}
+          aria-invalid={invalidScore ? 'true' : undefined}
           onInput={event => review.setScore(event.currentTarget.value)}
         />
+        {invalidScore && <span class="field-error">{invalidScore}</span>}
       </label>
       <label class="score-override" for="review-handicap">
         <span>{record.handicapEntryType === 'difference' ? 'Difference' : 'Odds'}</span>

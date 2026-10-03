@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import { isValidOdds, isValidScore, type MatchType } from '../../../packages/shared/src/match.ts';
+import { isValidOdds, scoreError, type MatchType } from '../../../packages/shared/src/match.ts';
 import type { AdminEntryRequest } from './api.ts';
 
 export interface EntryDraft {
@@ -137,8 +137,9 @@ export function firstInvalidEntryField(draft: EntryDraft, today: string): EntryF
   if (draft.matchDate > today) {
     return { field: 'matchDate', message: 'The match date cannot be in the future.' };
   }
-  if (!isValidScore(draft.score)) {
-    return { field: 'score', message: 'Enter game scores like 6-2,6-1 or 10-8.' };
+  const invalidScore = scoreError(draft.score);
+  if (invalidScore) {
+    return { field: 'score', message: invalidScore };
   }
   if (draft.handicap.trim() && !isValidOdds(draft.handicap)) {
     return { field: 'handicap', message: 'Enter two valid odds scores, such as -15/15 or -h15/15.' };
